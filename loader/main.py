@@ -14,13 +14,18 @@ from loader.loader import load_file
 
 def run(mode: str):
     cfg = Config()
-    run_id_str = datetime.now().strftime("%Y%m%d_%H%M%S")
+    start_time = datetime.now(tz=timezone.utc)
+    run_id_str = start_time.strftime("%Y%m%d_%H%M%S")
     logger = setup_logger(log_dir="logs", run_id=run_id_str)
 
-    engine = get_engine(cfg.db_url)
-    create_metadata_tables(engine)
+    try:
+        engine = get_engine(cfg.db_url)
+        create_metadata_tables(engine)
+    except Exception as e:
+        logger.critical(f"DB bootstrap failed: {e}")
+        raise
 
-    run_id = insert_run_log(engine, mode, datetime.now(tz=timezone.utc))
+    run_id = insert_run_log(engine, mode, start_time)
     logger.info(f"Run started — mode={mode} run_id={run_id}")
 
     if mode == "init":
@@ -31,7 +36,6 @@ def run(mode: str):
             logger.info("No previous run found, scanning all files")
             files = scan_all_files(cfg.data_dir, cfg.folder_map)
         else:
-            # get_last_run_time returns naive datetime from DB — make it UTC-aware
             if last_run.tzinfo is None:
                 last_run = last_run.replace(tzinfo=timezone.utc)
             files = scan_changed_files(cfg.data_dir, cfg.folder_map, last_run)
@@ -40,33 +44,39 @@ def run(mode: str):
 
     processed = skipped = errors = 0
 
-    for f in files:
-        path = f["file_path"]
-        rel = f["rel_path"]
-        table = f["table_name"]
+    try:
+        for f in files:
+            path = f["file_path"]
+            rel = f["rel_path"]
+            table = f["table_name"]
 
-        df, read_err = read_excel(path)
-        if read_err:
-            logger.warning(f"SKIP_FILE — {rel} — cannot read: {read_err}")
-            upsert_load_metadata(engine, rel, table, 0, "failed")
-            skipped += 1
-            continue
-
-        required = [c for c in get_table_columns(engine, table) if c != "source_file"]
-        if required:
-            missing = validate_columns(df, required)
-            if missing:
-                logger.warning(f"SKIP_FILE — {rel} — missing columns: {missing}")
-                upsert_load_metadata(engine, rel, table, 0, "skipped")
+            df, read_err = read_excel(path)
+            if read_err:
+                logger.warning(f"SKIP_FILE — {rel} — cannot read: {read_err}")
+                upsert_load_metadata(engine, rel, table, 0, "failed")
                 skipped += 1
                 continue
 
-        stats = load_file(engine, df, table, rel, logger)
-        processed += 1
-        logger.info(f"LOADED — {rel} — {stats['loaded']} rows ({stats['skipped']} skipped)")
+            required = [c for c in get_table_columns(engine, table) if c != "source_file"]
+            if required:
+                missing = validate_columns(df, required)
+                if missing:
+                    logger.warning(f"SKIP_FILE — {rel} — missing columns: {missing}")
+                    upsert_load_metadata(engine, rel, table, 0, "skipped")
+                    skipped += 1
+                    continue
 
-    finish_run_log(engine, run_id, processed, skipped, errors)
-    logger.info(f"Run finished — {processed} loaded, {skipped} skipped, {errors} errors")
+            try:
+                stats = load_file(engine, df, table, rel, logger)
+                processed += 1
+                logger.info(f"LOADED — {rel} — {stats['loaded']} rows ({stats['skipped']} skipped)")
+            except Exception as e:
+                errors += 1
+                logger.error(f"ERROR — {rel} — {e}")
+                upsert_load_metadata(engine, rel, table, 0, "failed")
+    finally:
+        finish_run_log(engine, run_id, processed, skipped, errors)
+        logger.info(f"Run finished — {processed} loaded, {skipped} skipped, {errors} errors")
 
 
 def main():
