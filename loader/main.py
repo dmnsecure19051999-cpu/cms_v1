@@ -29,16 +29,16 @@ def run(mode: str):
     logger.info(f"Run started — mode={mode} run_id={run_id}")
 
     if mode == "init":
-        files = scan_all_files(cfg.data_dir, cfg.folder_map)
+        files = scan_all_files(cfg.folder_map)
     else:
         last_run = get_last_run_time(engine)
         if last_run is None:
             logger.info("No previous run found, scanning all files")
-            files = scan_all_files(cfg.data_dir, cfg.folder_map)
+            files = scan_all_files(cfg.folder_map)
         else:
             if last_run.tzinfo is None:
                 last_run = last_run.replace(tzinfo=timezone.utc)
-            files = scan_changed_files(cfg.data_dir, cfg.folder_map, last_run)
+            files = scan_changed_files(cfg.folder_map, last_run)
 
     logger.info(f"Scanning: {len(files)} files to process")
 

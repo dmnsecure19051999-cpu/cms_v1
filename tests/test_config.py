@@ -2,34 +2,24 @@ import os
 import pytest
 from unittest.mock import patch
 
-def test_config_loads_data_dir():
-    with patch.dict(os.environ, {
-        "DATA_DIR": "/tmp/cms",
-        "DB_HOST": "localhost", "DB_PORT": "1433",
-        "DB_NAME": "cms_db", "DB_USER": "sa", "DB_PASSWORD": "pass"
-    }):
-        from loader.config import Config
-        cfg = Config()
-        assert cfg.data_dir == "/tmp/cms"
+BASE_ENV = {
+    "CANCEL_DIR": "/tmp/cms/cancel",
+    "CUSTOMER_DATA_DIR": "/tmp/cms/customer_data",
+    "REVENUE_DIR": "/tmp/cms/revenue",
+    "DB_HOST": "localhost", "DB_PORT": "1433",
+    "DB_NAME": "cms_db", "DB_USER": "sa", "DB_PASSWORD": "pass",
+}
 
 def test_config_folder_table_mapping():
-    with patch.dict(os.environ, {
-        "DATA_DIR": "/tmp/cms",
-        "DB_HOST": "localhost", "DB_PORT": "1433",
-        "DB_NAME": "cms_db", "DB_USER": "sa", "DB_PASSWORD": "pass"
-    }):
+    with patch.dict(os.environ, BASE_ENV):
         from loader.config import Config
         cfg = Config()
-        assert cfg.folder_map["cancel"] == "cancellation_bills"
-        assert cfg.folder_map["customer_data"] == "customer_data"
-        assert cfg.folder_map["revenue"] == "sales_revenue"
+        assert cfg.folder_map["/tmp/cms/cancel"] == "cancellation_bills"
+        assert cfg.folder_map["/tmp/cms/customer_data"] == "customer_data"
+        assert cfg.folder_map["/tmp/cms/revenue"] == "sales_revenue"
 
 def test_config_db_url():
-    with patch.dict(os.environ, {
-        "DATA_DIR": "/tmp/cms",
-        "DB_HOST": "localhost", "DB_PORT": "1433",
-        "DB_NAME": "cms_db", "DB_USER": "sa", "DB_PASSWORD": "pass"
-    }):
+    with patch.dict(os.environ, BASE_ENV):
         from loader.config import Config
         cfg = Config()
         assert "localhost" in cfg.db_url
