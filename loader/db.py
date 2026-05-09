@@ -2,6 +2,10 @@ from datetime import datetime
 from sqlalchemy import (create_engine, text, inspect as sa_inspect,
                          MetaData, Table, Column, Integer, String, DateTime, Engine)
 
+STATUS_SUCCESS = "success"
+
+_ALLOWED_COL_TYPES = {"NVARCHAR(MAX)", "TEXT", "INTEGER", "FLOAT", "DATETIME"}
+
 
 def get_engine(db_url: str) -> Engine:
     return create_engine(db_url)
@@ -37,6 +41,8 @@ def get_table_columns(engine: Engine, table_name: str) -> list[str]:
 
 
 def add_column(engine: Engine, table_name: str, col_name: str, col_type: str = "NVARCHAR(MAX)"):
+    if col_type.upper() not in _ALLOWED_COL_TYPES:
+        raise ValueError(f"Unsupported col_type: {col_type!r}")
     with engine.connect() as conn:
         conn.execute(text(f'ALTER TABLE "{table_name}" ADD "{col_name}" {col_type}'))
         conn.commit()
@@ -72,19 +78,18 @@ def upsert_load_metadata(engine: Engine, file_path: str, table_name: str,
 def is_file_loaded(engine: Engine, file_path: str) -> bool:
     with engine.connect() as conn:
         row = conn.execute(text(
-            "SELECT id FROM _load_metadata WHERE file_path = :fp AND status = 'success'"
+            f"SELECT id FROM _load_metadata WHERE file_path = :fp AND status = '{STATUS_SUCCESS}'"
         ), {"fp": file_path}).fetchone()
         return row is not None
 
 
 def insert_run_log(engine: Engine, mode: str, started_at: datetime) -> int:
     with engine.connect() as conn:
-        conn.execute(text(
+        result = conn.execute(text(
             "INSERT INTO _run_log (mode, started_at) VALUES (:mode, :started_at)"
         ), {"mode": mode, "started_at": started_at})
         conn.commit()
-        row = conn.execute(text("SELECT MAX(run_id) FROM _run_log")).fetchone()
-        return row[0]
+        return result.lastrowid
 
 
 def finish_run_log(engine: Engine, run_id: int, processed: int, skipped: int, errors: int):
