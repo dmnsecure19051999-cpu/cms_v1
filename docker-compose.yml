@@ -6,7 +6,8 @@ services:
     environment:
       SA_PASSWORD: ${DB_PASSWORD}
       ACCEPT_EULA: "Y"
-      MSSQL_DB: ${DB_NAME}
+      # Database 'cms_db' must be created manually after first start:
+      # docker exec cms-sqlserver-1 /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "$DB_PASSWORD" -No -Q "CREATE DATABASE cms_db"
     volumes:
       - sqlserver_data:/var/opt/mssql
 
