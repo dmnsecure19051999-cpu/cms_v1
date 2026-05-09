@@ -1,16 +1,18 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 
 def _scan(data_dir: str, folder_map: dict, since: datetime | None) -> list[dict]:
-    results = []
     base = Path(data_dir)
+    if not base.exists():
+        raise FileNotFoundError(f"DATA_DIR does not exist: {data_dir}")
+    results = []
     for folder, table_name in folder_map.items():
         folder_path = base / folder
         if not folder_path.exists():
             continue
         for xlsx in folder_path.rglob("*.xlsx"):
-            mtime = datetime.fromtimestamp(xlsx.stat().st_mtime)
+            mtime = datetime.fromtimestamp(xlsx.stat().st_mtime, tz=timezone.utc)
             if since is None or mtime > since:
                 results.append({
                     "file_path": str(xlsx),

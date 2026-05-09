@@ -1,6 +1,5 @@
-import os
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 def make_xlsx(path: Path):
@@ -23,7 +22,7 @@ def test_scan_changed_files(tmp_path):
     from loader.file_scanner import scan_changed_files
     (tmp_path / "cancel").mkdir()
     make_xlsx(tmp_path / "cancel" / "old.xlsx")
-    cutoff = datetime.now()
+    cutoff = datetime.now(tz=timezone.utc)
     time.sleep(0.05)
     make_xlsx(tmp_path / "cancel" / "new.xlsx")
     folder_map = {"cancel": "cancellation_bills"}
@@ -39,3 +38,9 @@ def test_scan_result_has_table_name(tmp_path):
     folder_map = {"cancel": "cancellation_bills"}
     results = scan_all_files(str(tmp_path), folder_map)
     assert results[0]["table_name"] == "cancellation_bills"
+
+def test_scan_missing_data_dir():
+    from loader.file_scanner import scan_all_files
+    import pytest
+    with pytest.raises(FileNotFoundError):
+        scan_all_files("/nonexistent/path", {"cancel": "cancellation_bills"})
