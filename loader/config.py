@@ -1,10 +1,9 @@
 import os
 from dotenv import load_dotenv
 
-load_dotenv()
-
 class Config:
     def __init__(self):
+        load_dotenv()
         self.data_dir = os.environ["DATA_DIR"]
         self.db_host = os.environ["DB_HOST"]
         self.db_port = os.environ.get("DB_PORT", "1433")
