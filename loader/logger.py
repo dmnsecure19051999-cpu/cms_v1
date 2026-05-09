@@ -4,9 +4,10 @@ from datetime import datetime
 from pathlib import Path
 
 def setup_logger(log_dir: str = "logs", run_id: str = "") -> logging.Logger:
-    Path(log_dir).mkdir(exist_ok=True)
+    Path(log_dir).mkdir(parents=True, exist_ok=True)
     ts = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    filename = Path(log_dir) / f"{ts}_{run_id}.log"
+    suffix = f"_{run_id}" if run_id else ""
+    filename = Path(log_dir) / f"{ts}{suffix}.log"
 
     fmt = "[%(asctime)s] %(levelname)-5s %(message)s"
     datefmt = "%Y-%m-%d %H:%M:%S"
@@ -14,6 +15,7 @@ def setup_logger(log_dir: str = "logs", run_id: str = "") -> logging.Logger:
     logger = logging.getLogger(f"cms.{run_id}")
     logger.setLevel(logging.DEBUG)
     logger.handlers.clear()
+    logger.propagate = False
 
     fh = logging.FileHandler(filename, encoding="utf-8")
     fh.setFormatter(logging.Formatter(fmt, datefmt))

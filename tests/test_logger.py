@@ -1,4 +1,3 @@
-import os, logging
 from pathlib import Path
 
 def test_logger_creates_log_file(tmp_path):
