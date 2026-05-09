@@ -7,8 +7,10 @@ class Config:
         self.db_host = os.environ["DB_HOST"]
         self.db_port = os.environ.get("DB_PORT", "1433")
         self.db_name = os.environ["DB_NAME"]
-        self.db_user = os.environ["DB_USER"]
-        self.db_password = os.environ["DB_PASSWORD"]
+        self.db_trusted = os.environ.get("DB_TRUSTED", "no").lower() == "yes"
+        self.db_user = os.environ.get("DB_USER", "")
+        self.db_password = os.environ.get("DB_PASSWORD", "")
+        self.db_driver = os.environ.get("DB_DRIVER", "ODBC Driver 18 for SQL Server")
         self.folder_map = {
             os.environ["CANCEL_DIR"]: "cancellation_bills",
             os.environ["CUSTOMER_DATA_DIR"]: "customer_data",
@@ -17,8 +19,15 @@ class Config:
 
     @property
     def db_url(self):
+        driver = self.db_driver.replace(" ", "+")
+        if self.db_trusted:
+            # Windows Authentication — không cần user/password, không cần port với named instance
+            return (
+                f"mssql+pyodbc://@{self.db_host}/{self.db_name}"
+                f"?driver={driver}&trusted_connection=yes"
+            )
         return (
             f"mssql+pyodbc://{self.db_user}:{self.db_password}"
             f"@{self.db_host}:{self.db_port}/{self.db_name}"
-            f"?driver=ODBC+Driver+18+for+SQL+Server&TrustServerCertificate=yes"
+            f"?driver={driver}&TrustServerCertificate=yes"
         )
