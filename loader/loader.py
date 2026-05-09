@@ -74,10 +74,13 @@ def load_file(engine: Engine, df: pd.DataFrame, table_name: str,
                     else:
                         row_dict[_safe_col(k)] = v
 
-            cols = ", ".join(f'"{k}"' for k in row_dict)
-            params = ", ".join(f":{k}" for k in row_dict)
+            col_names = list(row_dict.keys())
+            col_values = list(row_dict.values())
+            cols = ", ".join(f'"{c}"' for c in col_names)
+            params = ", ".join(f":p{i}" for i in range(len(col_names)))
+            param_dict = {f"p{i}": v for i, v in enumerate(col_values)}
             with engine.connect() as conn:
-                conn.execute(text(f'INSERT INTO "{table_name}" ({cols}) VALUES ({params})'), row_dict)
+                conn.execute(text(f'INSERT INTO "{table_name}" ({cols}) VALUES ({params})'), param_dict)
                 conn.commit()
             loaded += 1
         except Exception as e:

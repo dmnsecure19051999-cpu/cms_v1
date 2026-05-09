@@ -1,4 +1,5 @@
 import os
+from urllib.parse import quote_plus
 from dotenv import load_dotenv
 
 class Config:
@@ -27,7 +28,7 @@ class Config:
                 f"?driver={driver}&trusted_connection=yes"
             )
         return (
-            f"mssql+pyodbc://{self.db_user}:{self.db_password}"
+            f"mssql+pyodbc://{quote_plus(self.db_user)}:{quote_plus(self.db_password)}"
             f"@{self.db_host}:{self.db_port}/{self.db_name}"
             f"?driver={driver}&TrustServerCertificate=yes"
         )
