@@ -1,5 +1,9 @@
 import pandas as pd
-from sqlalchemy import Engine, text, inspect
+from sqlalchemy import Engine, text, inspect, types as sa_types
+
+
+def _safe_col(name: str) -> str:
+    return name.replace('"', '').replace("'", "").strip()
 
 
 def _ensure_table_schema(engine: Engine, df: pd.DataFrame, table_name: str, logger):
@@ -9,7 +13,7 @@ def _ensure_table_schema(engine: Engine, df: pd.DataFrame, table_name: str, logg
     existing = get_table_columns(engine, table_name)
     if not existing:
         cols_sql = ", ".join(
-            f'"{c}" {infer_sql_type(df[c])} NULL' for c in df.columns
+            f'"{_safe_col(c)}" {infer_sql_type(df[c])} NULL' for c in df.columns
         ) + ', "source_file" TEXT NULL'
         with engine.connect() as conn:
             conn.execute(text(f'CREATE TABLE "{table_name}" ({cols_sql})'))
@@ -46,23 +50,30 @@ def load_file(engine: Engine, df: pd.DataFrame, table_name: str,
 
     col_info = inspect(engine).get_columns(table_name)
     existing_cols = [c["name"] for c in col_info]
-    col_type_map = {c["name"]: type(c["type"]).__name__.upper() for c in col_info}
+    col_sa_types = {c["name"]: c["type"] for c in col_info}
     df = df[[c for c in df.columns if c in existing_cols]]
 
     for idx, row in df.iterrows():
         try:
             row_dict = {}
             for k, v in row.items():
-                if pd.isna(v):
-                    row_dict[k] = None
+                is_null = False
+                try:
+                    is_null = bool(pd.isna(v))
+                except (TypeError, ValueError):
+                    pass
+
+                if is_null:
+                    row_dict[_safe_col(k)] = None
                 else:
-                    col_type = col_type_map.get(k, "")
-                    if "FLOAT" in col_type or "REAL" in col_type or "DOUBLE" in col_type or "NUMERIC" in col_type or "DECIMAL" in col_type:
-                        row_dict[k] = float(v)
-                    elif "INT" in col_type:
-                        row_dict[k] = int(v)
+                    sa_type = col_sa_types.get(k)
+                    if sa_type is not None and isinstance(sa_type, sa_types.Numeric):
+                        row_dict[_safe_col(k)] = float(v)
+                    elif sa_type is not None and isinstance(sa_type, sa_types.Integer):
+                        row_dict[_safe_col(k)] = int(v)
                     else:
-                        row_dict[k] = v
+                        row_dict[_safe_col(k)] = v
+
             cols = ", ".join(f'"{k}"' for k in row_dict)
             params = ", ".join(f":{k}" for k in row_dict)
             with engine.connect() as conn:

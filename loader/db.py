@@ -78,8 +78,8 @@ def upsert_load_metadata(engine: Engine, file_path: str, table_name: str,
 def is_file_loaded(engine: Engine, file_path: str) -> bool:
     with engine.connect() as conn:
         row = conn.execute(text(
-            f"SELECT id FROM _load_metadata WHERE file_path = :fp AND status = '{STATUS_SUCCESS}'"
-        ), {"fp": file_path}).fetchone()
+            "SELECT id FROM _load_metadata WHERE file_path = :fp AND status = :status"
+        ), {"fp": file_path, "status": STATUS_SUCCESS}).fetchone()
         return row is not None
 
 
