@@ -28,6 +28,11 @@ set_env_var() {
     fi
 }
 
+get_first_ipv4() {
+    local iface="$1"
+    ip -4 addr show "$iface" 2>/dev/null | awk '/inet / {print $2}' | cut -d/ -f1 | head -n 1 || true
+}
+
 echo -e "${CYAN}============================================${NC}"
 echo -e "${CYAN}   CMS Data Pipeline - Ubuntu/Linux Setup${NC}"
 echo -e "${CYAN}============================================${NC}"
@@ -237,6 +242,44 @@ else
     echo "Current DB config comes from .env"
     exit 1
 fi
+
+# 10. Show network info for external connectivity
+step "Network access information"
+
+DB_HOST_VALUE=$(grep -E '^DB_HOST=' .env 2>/dev/null | head -n 1 | cut -d= -f2- || true)
+DB_PORT_VALUE=$(grep -E '^DB_PORT=' .env 2>/dev/null | head -n 1 | cut -d= -f2- || true)
+DB_NAME_VALUE=$(grep -E '^DB_NAME=' .env 2>/dev/null | head -n 1 | cut -d= -f2- || true)
+DB_USER_VALUE=$(grep -E '^DB_USER=' .env 2>/dev/null | head -n 1 | cut -d= -f2- || true)
+
+DB_HOST_VALUE="${DB_HOST_VALUE:-localhost}"
+DB_PORT_VALUE="${DB_PORT_VALUE:-5433}"
+DB_NAME_VALUE="${DB_NAME_VALUE:-cms_db}"
+DB_USER_VALUE="${DB_USER_VALUE:-postgres}"
+
+IS_WSL="false"
+if grep -qi microsoft /proc/version 2>/dev/null || [ -n "${WSL_DISTRO_NAME:-}" ]; then
+    IS_WSL="true"
+fi
+
+WSL_IP=""
+
+if [ "$IS_WSL" = "true" ]; then
+    WSL_IP="$(get_first_ipv4 eth0)"
+    if [ -z "$WSL_IP" ]; then
+        WSL_IP="$(hostname -I 2>/dev/null | awk '{print $1}' || true)"
+    fi
+fi
+
+if [ "$IS_WSL" = "true" ]; then
+    [ -n "$WSL_IP" ] && ok "WSL IP: ${WSL_IP}"
+else
+    PRIMARY_IP="$(hostname -I 2>/dev/null | awk '{print $1}')"
+    [ -n "$PRIMARY_IP" ] && ok "Machine IP: ${PRIMARY_IP}"
+fi
+
+echo ""
+echo "Sample psql command:"
+echo "  PGPASSWORD=*** psql -h ${DB_HOST_VALUE} -p ${DB_PORT_VALUE} -U ${DB_USER_VALUE} -d ${DB_NAME_VALUE}"
 
 # Done
 echo ""
