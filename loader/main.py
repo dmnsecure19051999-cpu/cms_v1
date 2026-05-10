@@ -76,14 +76,10 @@ def run(mode: str):
                 skipped += 1
                 continue
 
-            required = [c for c in get_table_columns(engine, table) if c != "source_file"]
-            if required:
-                missing = validate_columns(df, required)
-                if missing:
-                    logger.warning(f"SKIP_FILE — {rel} — missing columns: {missing}")
-                    upsert_load_metadata(engine, rel, table, 0, "skipped")
-                    skipped += 1
-                    continue
+            existing = get_table_columns(engine, table)
+            missing = validate_columns(df, [c for c in existing if c != "source_file"])
+            if missing:
+                logger.info(f"MISSING_COLS — {rel} — {missing} will be NULL")
 
             try:
                 stats = load_file(engine, df, table, rel, logger)
