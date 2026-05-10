@@ -15,6 +15,12 @@ class Config:
             os.environ["CUSTOMER_DATA_DIR"]: "customer_data",
             os.environ["REVENUE_DIR"]: "sales_revenue",
         }
+        # 0-indexed header row for pd.read_excel (row 2 → 1, row 3 → 2)
+        self.table_header_map = {
+            "cancellation_bills": 2,
+            "customer_data": 2,
+            "sales_revenue": 3,
+        }
 
     @property
     def db_url(self):
