@@ -1,3 +1,6 @@
+import re
+import unicodedata
+
 import pandas as pd
 from sqlalchemy import Engine, inspect, text, types as sa_types
 
@@ -7,6 +10,18 @@ from loader.db import (
     is_file_loaded,
     upsert_load_metadata,
 )
+
+
+def normalize_col_name(name: str) -> str:
+    name = str(name).replace("Đ", "D").replace("đ", "d")
+    name = unicodedata.normalize("NFD", name)
+    name = "".join(c for c in name if unicodedata.category(c) != "Mn")
+    name = name.lower()
+    name = name.replace("%", "per")
+    name = name.replace("(", "").replace(")", "")
+    name = re.sub(r"[^a-z0-9]+", "_", name)
+    name = name.strip("_")
+    return name or "col"
 
 
 def _safe_col(name: str) -> str:
@@ -36,7 +51,7 @@ def _ensure_table_schema(engine: Engine, df: pd.DataFrame, table_name: str, logg
             uuid_def = '"uuid" TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16))))'
         cols_sql = (
             uuid_def + ", "
-            + ", ".join(f'"{_safe_col(c)}" TEXT NULL' for c in df.columns)
+            + ", ".join(f'"{normalize_col_name(c)}" TEXT NULL' for c in df.columns)
             + ', "source_file" TEXT NULL'
         )
         with engine.connect() as conn:
@@ -45,10 +60,11 @@ def _ensure_table_schema(engine: Engine, df: pd.DataFrame, table_name: str, logg
         return
 
     for col in df.columns:
-        if col not in existing:
-            add_column(engine, table_name, col, "TEXT")
+        norm = normalize_col_name(col)
+        if norm not in existing:
+            add_column(engine, table_name, norm, "TEXT")
             if logger:
-                logger.info(f"NEW_COLUMN — {table_name} — added column: '{col}'")
+                logger.info(f"NEW_COLUMN — {table_name} — added column: '{norm}'")
 
     if "source_file" not in existing:
         add_column(engine, table_name, "source_file", "TEXT")
@@ -67,6 +83,7 @@ def load_file(engine: Engine, df: pd.DataFrame, table_name: str,
             conn.commit()
 
     df = df.copy()
+    df.columns = [normalize_col_name(c) for c in df.columns]
     df["source_file"] = rel_path
 
     col_info = inspect(engine).get_columns(table_name)

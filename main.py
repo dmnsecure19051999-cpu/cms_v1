@@ -15,8 +15,8 @@ from loader.db import (get_engine, ensure_database, create_metadata_tables,
                         upgrade_column_types)
 from loader.logger import setup_logger
 from loader.file_scanner import scan_all_files, scan_changed_files
-from loader.excel_reader import read_excel, validate_columns
-from loader.loader import load_file
+from loader.excel_reader import read_excel
+from loader.loader import load_file, normalize_col_name
 
 
 def run(mode: str):
@@ -78,12 +78,13 @@ def run(mode: str):
                 continue
 
             existing = get_table_columns(engine, table)
+            norm_df_cols = {normalize_col_name(c) for c in df.columns}
             schema_cols = [c for c in existing if c not in ("source_file", "uuid")]
-            missing = validate_columns(df, schema_cols)
+            missing = [c for c in schema_cols if c not in norm_df_cols]
             if missing:
                 logger.info(f"MISSING_COLS — {rel} — {missing} will be NULL")
 
-            new_cols = [c for c in df.columns if c not in existing]
+            new_cols = [c for c in norm_df_cols if c not in existing]
 
             try:
                 stats = load_file(engine, df, table, rel, logger)
