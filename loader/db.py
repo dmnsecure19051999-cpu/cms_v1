@@ -6,6 +6,7 @@ from sqlalchemy import MetaData as SAMetaData, insert as sa_insert
 STATUS_SUCCESS = "success"
 
 _ALLOWED_COL_TYPES = {"TEXT", "INTEGER", "FLOAT", "TIMESTAMP"}
+_UPGRADE_SKIP_COLS = {"source_file"}
 
 
 def get_engine(db_url: str) -> Engine:
@@ -72,10 +73,13 @@ def drop_table(engine: Engine, table_name: str):
 
 
 def upgrade_column_types(engine: Engine, table_name: str, logger=None):
-    skip_cols = {"source_file"}
     cols = get_table_columns(engine, table_name)
+    if not cols:
+        if logger:
+            logger.warning(f"TYPE_UPGRADE — {table_name} has no columns, skipping")
+        return
     for col in cols:
-        if col in skip_cols:
+        if col in _UPGRADE_SKIP_COLS:
             continue
         for sql_type, cast_expr in [
             ("FLOAT", f'"{col}"::FLOAT'),
@@ -92,8 +96,9 @@ def upgrade_column_types(engine: Engine, table_name: str, logger=None):
                 if logger:
                     logger.info(f"TYPE_UPGRADE — {table_name}.{col} → {sql_type}")
                 break
-            except Exception:
-                pass
+            except Exception as e:
+                if logger:
+                    logger.debug(f"SKIP_UPGRADE — {table_name}.{col} → {sql_type}: {e}")
 
 
 def get_last_run_time(engine: Engine) -> datetime | None:
