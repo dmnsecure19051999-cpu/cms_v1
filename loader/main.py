@@ -61,9 +61,10 @@ def run(mode: str):
 
     processed = skipped = errors = 0
     loaded_tables: set[str] = set()
+    total = len(files)
 
     try:
-        for f in files:
+        for idx, f in enumerate(files, 1):
             path = f["file_path"]
             rel = f["rel_path"]
             table = f["table_name"]
@@ -74,6 +75,7 @@ def run(mode: str):
                 logger.warning(f"SKIP_FILE — {rel} — cannot read: {read_err}")
                 upsert_load_metadata(engine, rel, table, 0, "failed")
                 skipped += 1
+                logger.info(f"PROGRESS — {idx}/{total} ({idx*100//total}%)")
                 continue
 
             existing = get_table_columns(engine, table)
@@ -90,6 +92,8 @@ def run(mode: str):
                 errors += 1
                 logger.error(f"ERROR — {rel} — {e}")
                 upsert_load_metadata(engine, rel, table, 0, "failed")
+
+            logger.info(f"PROGRESS — {idx}/{total} ({idx*100//total}%)")
 
         if mode == "init":
             logger.info("INIT — upgrading column types from actual data")
