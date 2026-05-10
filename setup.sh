@@ -139,9 +139,9 @@ else
 fi
 
 PROJECT_DIR="$(pwd)"
-DEFAULT_CANCEL_DIR="${PROJECT_DIR}/cancel"
-DEFAULT_CUSTOMER_DIR="${PROJECT_DIR}/customer_data"
-DEFAULT_REVENUE_DIR="${PROJECT_DIR}/revenue"
+DEFAULT_CANCEL_DIR="${PROJECT_DIR}/sample_input/cancel"
+DEFAULT_CUSTOMER_DIR="${PROJECT_DIR}/sample_input/customer_data"
+DEFAULT_REVENUE_DIR="${PROJECT_DIR}/sample_input/revenue"
 
 set_env_var "CANCEL_DIR" "${DEFAULT_CANCEL_DIR}"
 set_env_var "CUSTOMER_DATA_DIR" "${DEFAULT_CUSTOMER_DIR}"
@@ -288,6 +288,6 @@ echo -e "${GREEN}   Setup complete!${NC}"
 echo -e "${GREEN}============================================${NC}"
 echo ""
 echo "Run the pipeline:"
-echo "  Init (full load):    .venv/bin/python -m loader.main --mode init"
-echo "  Daily (incremental): .venv/bin/python -m loader.main --mode daily"
+echo "  Init (full load):    .venv/bin/python main.py --mode init"
+echo "  Daily (incremental): .venv/bin/python main.py --mode daily"
 echo ""

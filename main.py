@@ -1,4 +1,7 @@
-# loader/main.py
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).parent / "src"))
+
 import argparse
 from collections import defaultdict
 from datetime import datetime, timezone

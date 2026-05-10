@@ -10,7 +10,7 @@ dist/
 venv/
 logs/*.log
 
-# *.xlsx
-# cancel/
-# customer_data/
-# revenue/
+*.xlsx
+sample_input/cancel/
+sample_input/customer_data/
+sample_input/revenue/

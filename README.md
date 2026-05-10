@@ -78,26 +78,26 @@ DB_PASSWORD=your_password
 
 ```powershell
 # Lần đầu — load toàn bộ
-.venv\Scripts\python -m loader.main --mode init
+.venv\Scripts\python main.py --mode init
 
 # Hàng ngày — chỉ load file mới
-.venv\Scripts\python -m loader.main --mode daily
+.venv\Scripts\python main.py --mode daily
 
 # Kiểm tra nhanh — tối đa 10 file/bảng
-.venv\Scripts\python -m loader.main --mode test
+.venv\Scripts\python main.py --mode test
 ```
 
 ### Ubuntu / Linux
 
 ```bash
 # Lần đầu — load toàn bộ
-.venv/bin/python -m loader.main --mode init
+.venv/bin/python main.py --mode init
 
 # Hàng ngày — chỉ load file mới
-.venv/bin/python -m loader.main --mode daily
+.venv/bin/python main.py --mode daily
 
 # Kiểm tra nhanh — tối đa 10 file/bảng
-.venv/bin/python -m loader.main --mode test
+.venv/bin/python main.py --mode test
 ```
 
 ---
@@ -124,15 +124,20 @@ docker compose down -v
 
 ```
 cms/
-├── loader/
-│   ├── config.py        # Đọc .env, tạo DB URL, cấu hình header row per bảng
-│   ├── db.py            # Tạo bảng, upsert metadata, run log, upgrade column types
-│   ├── excel_reader.py  # Đọc .xlsx, validate cột
-│   ├── file_scanner.py  # Quét folder, lọc file theo mtime
-│   ├── loader.py        # Load DataFrame vào DB, xử lý schema động
-│   ├── logger.py        # Setup logging ra file + stdout
-│   └── main.py          # Entrypoint CLI (--mode init/daily/test)
-├── tests/               # Unit tests (pytest, SQLite in-memory)
+├── main.py              # Entrypoint CLI (--mode init/daily/test)
+├── src/
+│   ├── loader/
+│   │   ├── config.py        # Đọc .env, tạo DB URL, cấu hình header row per bảng
+│   │   ├── db.py            # Tạo bảng, upsert metadata, run log, upgrade column types
+│   │   ├── excel_reader.py  # Đọc .xlsx, validate cột
+│   │   ├── file_scanner.py  # Quét folder, lọc file theo mtime
+│   │   ├── loader.py        # Load DataFrame vào DB, xử lý schema động
+│   │   └── logger.py        # Setup logging ra file + stdout
+│   └── tests/               # Unit tests (pytest, SQLite in-memory)
+├── sample_input/
+│   ├── cancel/              # File Excel CancellationBillReport
+│   ├── customer_data/       # File Excel CustomerReport
+│   └── revenue/             # File Excel doanh thu (theo năm)
 ├── logs/                # Log files (tự tạo khi chạy)
 ├── .env                 # Config local (KHÔNG commit)
 ├── .env.example         # Template cấu hình
@@ -195,10 +200,10 @@ Sau khi toàn bộ data được load dưới dạng `TEXT`, pipeline thử upgr
 
 ```bash
 # Ubuntu
-.venv/bin/python -m pytest tests/ -v
+.venv/bin/python -m pytest src/tests/ -v
 
 # Windows
-.venv\Scripts\python -m pytest tests/ -v
+.venv\Scripts\python -m pytest src/tests/ -v
 ```
 
 ---
