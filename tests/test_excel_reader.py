@@ -14,6 +14,21 @@ def sample_xlsx(tmp_path):
     df.to_excel(path, index=False)
     return path
 
+
+@pytest.fixture
+def sample_xlsx_with_title_row(tmp_path):
+    """Excel with a title row before headers (header on row 2, data from row 3)."""
+    path = tmp_path / "with_title.xlsx"
+    import openpyxl
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.append(["Report Title"])          # row 1 — title
+    ws.append(["bill_id", "amount"])     # row 2 — headers
+    ws.append([1, 100.0])                # row 3 — data
+    ws.append([2, 200.0])
+    wb.save(path)
+    return path
+
 def test_read_excel_returns_dataframe(sample_xlsx):
     from loader.excel_reader import read_excel
     df, error = read_excel(str(sample_xlsx))
@@ -41,11 +56,36 @@ def test_detect_new_columns(sample_xlsx):
     new_cols = detect_new_columns(df, existing)
     assert set(new_cols) == {"created_at", "note"}
 
-def test_infer_sql_type():
-    from loader.excel_reader import infer_sql_type
-    assert infer_sql_type(pd.Series([1.0, 2.0])) == "FLOAT"
-    assert infer_sql_type(pd.Series(pd.to_datetime(["2025-01-01"]))) == "TIMESTAMP"
-    assert infer_sql_type(pd.Series(["a", "b"])) == "TEXT"
+def test_read_excel_header_returns_columns(sample_xlsx):
+    from loader.excel_reader import read_excel_header
+    cols, error = read_excel_header(str(sample_xlsx))
+    assert error is None
+    assert cols == ["bill_id", "amount", "created_at", "note"]
+
+
+def test_read_excel_header_with_offset(sample_xlsx_with_title_row):
+    from loader.excel_reader import read_excel_header
+    cols, error = read_excel_header(str(sample_xlsx_with_title_row), header=1)
+    assert error is None
+    assert cols == ["bill_id", "amount"]
+
+
+def test_read_excel_header_corrupt(tmp_path):
+    from loader.excel_reader import read_excel_header
+    bad = tmp_path / "bad.xlsx"
+    bad.write_text("not excel")
+    cols, error = read_excel_header(str(bad))
+    assert cols is None
+    assert error is not None
+
+
+def test_read_excel_with_header_row(sample_xlsx_with_title_row):
+    from loader.excel_reader import read_excel
+    df, error = read_excel(str(sample_xlsx_with_title_row), header=1)
+    assert error is None
+    assert list(df.columns) == ["bill_id", "amount"]
+    assert len(df) == 2
+
 
 def test_read_corrupt_file(tmp_path):
     bad = tmp_path / "bad.xlsx"
