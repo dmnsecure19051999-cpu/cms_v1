@@ -63,10 +63,14 @@ def test_upgrade_column_types_noop_on_non_postgres(engine):
 
 
 def test_upgrade_column_types_skips_source_file(engine):
-    """source_file column must never be upgraded."""
+    """source_file column must never be upgraded; data columns are attempted."""
     from loader.db import upgrade_column_types, get_table_columns
     with engine.connect() as conn:
-        conn.execute(text("CREATE TABLE upg_tbl2 (source_file TEXT)"))
+        conn.execute(text("CREATE TABLE upg_tbl2 (amount TEXT, source_file TEXT)"))
+        conn.execute(text("INSERT INTO upg_tbl2 VALUES ('1.5', 'f.xlsx')"))
         conn.commit()
     upgrade_column_types(engine, "upg_tbl2", logger=None)
+    # source_file must still exist regardless of upgrade outcome
     assert "source_file" in get_table_columns(engine, "upg_tbl2")
+    # amount was attempted (SQLite rejects, stays TEXT) — column must still exist
+    assert "amount" in get_table_columns(engine, "upg_tbl2")

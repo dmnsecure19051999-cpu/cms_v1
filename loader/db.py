@@ -72,25 +72,25 @@ def drop_table(engine: Engine, table_name: str):
         conn.commit()
 
 
+_UPGRADE_CANDIDATE_TYPES = ("FLOAT", "TIMESTAMP")
+
+
 def upgrade_column_types(engine: Engine, table_name: str, logger=None):
     cols = get_table_columns(engine, table_name)
     if not cols:
         if logger:
-            logger.warning(f"TYPE_UPGRADE — {table_name} has no columns, skipping")
+            logger.warning(f"TYPE_UPGRADE — {table_name} not found, skipping")
         return
     for col in cols:
         if col in _UPGRADE_SKIP_COLS:
             continue
-        for sql_type, cast_expr in [
-            ("FLOAT", f'"{col}"::FLOAT'),
-            ("TIMESTAMP", f'"{col}"::TIMESTAMP'),
-        ]:
+        for sql_type in _UPGRADE_CANDIDATE_TYPES:
             try:
                 with engine.connect() as conn:
                     conn.execute(text(
                         f'ALTER TABLE "{table_name}" '
                         f'ALTER COLUMN "{col}" TYPE {sql_type} '
-                        f'USING {cast_expr}'
+                        f'USING "{col}"::{sql_type}'
                     ))
                     conn.commit()
                 if logger:
