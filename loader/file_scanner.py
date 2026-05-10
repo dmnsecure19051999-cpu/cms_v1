@@ -11,7 +11,7 @@ def _scan(folder_map: dict, since: datetime | None) -> list[dict]:
         for xlsx in folder_path.rglob("*.xlsx"):
             mtime = datetime.fromtimestamp(xlsx.stat().st_mtime, tz=timezone.utc)
             if since is None or mtime > since:
-                rel_path = f"{folder_path.name}/{xlsx.relative_to(folder_path)}"
+                rel_path = f"{folder_path.name}/{xlsx.relative_to(folder_path).as_posix()}"
                 results.append({
                     "file_path": str(xlsx),
                     "rel_path": rel_path,

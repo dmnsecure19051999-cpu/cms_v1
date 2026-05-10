@@ -21,7 +21,7 @@ def detect_new_columns(df: pd.DataFrame, existing: list[str]) -> list[str]:
 
 def infer_sql_type(series: pd.Series) -> str:
     if pd.api.types.is_datetime64_any_dtype(series):
-        return "DATETIME"
+        return "TIMESTAMP"
     if pd.api.types.is_numeric_dtype(series):
         return "FLOAT"
-    return "NVARCHAR(MAX)"
+    return "TEXT"

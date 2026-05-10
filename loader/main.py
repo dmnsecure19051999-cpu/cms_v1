@@ -3,9 +3,9 @@ import argparse
 from datetime import datetime, timezone
 
 from loader.config import Config
-from loader.db import (get_engine, create_metadata_tables, get_last_run_time,
-                        insert_run_log, finish_run_log, upsert_load_metadata,
-                        get_table_columns)
+from loader.db import (get_engine, ensure_database, create_metadata_tables,
+                        get_last_run_time, insert_run_log, finish_run_log,
+                        upsert_load_metadata, get_table_columns)
 from loader.logger import setup_logger
 from loader.file_scanner import scan_all_files, scan_changed_files
 from loader.excel_reader import read_excel, validate_columns
@@ -19,6 +19,7 @@ def run(mode: str):
     logger = setup_logger(log_dir="logs", run_id=run_id_str)
 
     try:
+        ensure_database(cfg.db_url)
         engine = get_engine(cfg.db_url)
         create_metadata_tables(engine)
     except Exception as e:

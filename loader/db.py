@@ -5,11 +5,27 @@ from sqlalchemy import MetaData as SAMetaData, insert as sa_insert
 
 STATUS_SUCCESS = "success"
 
-_ALLOWED_COL_TYPES = {"NVARCHAR(MAX)", "TEXT", "INTEGER", "FLOAT", "DATETIME"}
+_ALLOWED_COL_TYPES = {"TEXT", "INTEGER", "FLOAT", "TIMESTAMP"}
 
 
 def get_engine(db_url: str) -> Engine:
     return create_engine(db_url)
+
+
+def ensure_database(db_url: str):
+    from sqlalchemy.engine import make_url
+    from sqlalchemy import event
+    u = make_url(db_url)
+    db_name = u.database
+    admin_url = u.set(database="postgres")
+    engine = create_engine(admin_url, isolation_level="AUTOCOMMIT")
+    with engine.connect() as conn:
+        exists = conn.execute(
+            text("SELECT 1 FROM pg_database WHERE datname = :name"), {"name": db_name}
+        ).fetchone()
+        if not exists:
+            conn.execute(text(f'CREATE DATABASE "{db_name}"'))
+    engine.dispose()
 
 
 def create_metadata_tables(engine: Engine):
@@ -41,7 +57,7 @@ def get_table_columns(engine: Engine, table_name: str) -> list[str]:
     return [col["name"] for col in insp.get_columns(table_name)]
 
 
-def add_column(engine: Engine, table_name: str, col_name: str, col_type: str = "NVARCHAR(MAX)"):
+def add_column(engine: Engine, table_name: str, col_name: str, col_type: str = "TEXT"):
     if col_type.upper() not in _ALLOWED_COL_TYPES:
         raise ValueError(f"Unsupported col_type: {col_type!r}")
     with engine.connect() as conn:

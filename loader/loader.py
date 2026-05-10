@@ -22,7 +22,7 @@ def _ensure_table_schema(engine: Engine, df: pd.DataFrame, table_name: str, logg
 
     for col in df.columns:
         if col not in existing:
-            add_column(engine, table_name, col, "NVARCHAR(MAX)")
+            add_column(engine, table_name, col, "TEXT")
             if logger:
                 logger.info(f"NEW_COLUMN — {table_name} — added column: '{col}'")
 

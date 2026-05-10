@@ -9,3 +9,8 @@ dist/
 .venv/
 venv/
 logs/*.log
+
+*.xlsx
+cancel/
+customer_data/
+revenue/

@@ -44,8 +44,8 @@ def test_detect_new_columns(sample_xlsx):
 def test_infer_sql_type():
     from loader.excel_reader import infer_sql_type
     assert infer_sql_type(pd.Series([1.0, 2.0])) == "FLOAT"
-    assert infer_sql_type(pd.Series(pd.to_datetime(["2025-01-01"]))) == "DATETIME"
-    assert infer_sql_type(pd.Series(["a", "b"])) == "NVARCHAR(MAX)"
+    assert infer_sql_type(pd.Series(pd.to_datetime(["2025-01-01"]))) == "TIMESTAMP"
+    assert infer_sql_type(pd.Series(["a", "b"])) == "TEXT"
 
 def test_read_corrupt_file(tmp_path):
     bad = tmp_path / "bad.xlsx"
