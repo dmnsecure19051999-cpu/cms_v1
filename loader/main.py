@@ -49,6 +49,7 @@ def run(mode: str):
             table_buckets[f["table_name"]].append(f)
         files = [f for bucket in table_buckets.values() for f in bucket[:10]]
         logger.info(f"Test mode: limited to {len(files)} files (up to 10 per table)")
+        logger.info("Test mode: column type upgrade skipped — run --mode init for full pipeline")
 
     if mode == "init":
         table_names = {f["table_name"] for f in files}
