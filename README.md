@@ -1,9 +1,10 @@
 # CMS Data Pipeline
 
-Đọc file Excel từ 3 thư mục (SharePoint-synced) và load vào PostgreSQL. Hỗ trợ 2 chế độ:
+Đọc file Excel từ 3 thư mục (SharePoint-synced) và load vào PostgreSQL. Hỗ trợ 3 chế độ:
 
-- **init** — load toàn bộ file, bỏ qua file đã load thành công trước đó
+- **init** — drop toàn bộ bảng, load lại từ đầu, tự động upgrade kiểu dữ liệu sau khi load xong
 - **daily** — chỉ load file có thời gian sửa đổi mới hơn lần chạy cuối
+- **test** — load tối đa 10 file/bảng để kiểm tra nhanh
 
 ---
 
@@ -69,6 +70,7 @@ DB_PASSWORD=your_password
 
 > **Lưu ý:** Database sẽ được tự động tạo khi chạy pipeline lần đầu nếu chưa tồn tại.
 
+---
 
 ## Chạy pipeline
 
@@ -80,6 +82,9 @@ DB_PASSWORD=your_password
 
 # Hàng ngày — chỉ load file mới
 .venv\Scripts\python -m loader.main --mode daily
+
+# Kiểm tra nhanh — tối đa 10 file/bảng
+.venv\Scripts\python -m loader.main --mode test
 ```
 
 ### Ubuntu / Linux
@@ -90,6 +95,9 @@ DB_PASSWORD=your_password
 
 # Hàng ngày — chỉ load file mới
 .venv/bin/python -m loader.main --mode daily
+
+# Kiểm tra nhanh — tối đa 10 file/bảng
+.venv/bin/python -m loader.main --mode test
 ```
 
 ---
@@ -104,10 +112,10 @@ docker compose up -d
 
 Port mặc định: **5433** (dùng 5433 thay vì 5432 để tránh conflict với PostgreSQL đang cài sẵn).
 
-Để dừng:
+Để dừng và xóa toàn bộ data:
 
 ```bash
-docker compose down
+docker compose down -v
 ```
 
 ---
@@ -117,13 +125,13 @@ docker compose down
 ```
 cms/
 ├── loader/
-│   ├── config.py        # Đọc .env, tạo DB URL
-│   ├── db.py            # Tạo bảng, upsert metadata, run log
-│   ├── excel_reader.py  # Đọc .xlsx, validate cột, infer SQL type
+│   ├── config.py        # Đọc .env, tạo DB URL, cấu hình header row per bảng
+│   ├── db.py            # Tạo bảng, upsert metadata, run log, upgrade column types
+│   ├── excel_reader.py  # Đọc .xlsx, validate cột
 │   ├── file_scanner.py  # Quét folder, lọc file theo mtime
-│   ├── loader.py        # Load DataFrame vào DB, xử lý schema
+│   ├── loader.py        # Load DataFrame vào DB, xử lý schema động
 │   ├── logger.py        # Setup logging ra file + stdout
-│   └── main.py          # Entrypoint CLI (--mode init/daily)
+│   └── main.py          # Entrypoint CLI (--mode init/daily/test)
 ├── tests/               # Unit tests (pytest, SQLite in-memory)
 ├── logs/                # Log files (tự tạo khi chạy)
 ├── .env                 # Config local (KHÔNG commit)
@@ -148,24 +156,38 @@ cms/
 
 ## Log files
 
-Log được lưu tại `logs/` với tên dạng `2026-05-09_19-30-00_1.log`.
-
-Các mức log:
+Log được lưu tại `logs/` với tên dạng `2026-05-10_19-30-00_20260510_193000.log`.
 
 | Log | Ý nghĩa |
 |-----|---------|
 | `LOADED` | File load thành công |
-| `SKIP_FILE` | File bị bỏ qua vì thiếu cột bắt buộc |
+| `SKIP_FILE` | File không đọc được (lỗi format) |
 | `SKIP_ROW` | Một row bị lỗi khi insert, các row khác vẫn load |
-| `NEW_COLUMN` | Phát hiện cột mới trong file, đã tự ALTER TABLE |
+| `NEW_COLUMN` | Phát hiện cột mới trong file, đã tự `ALTER TABLE ADD COLUMN` |
+| `MISSING_COLS` | File thiếu cột so với schema — vẫn load, cột thiếu = `NULL` |
+| `TYPE_UPGRADE` | Sau init: cột được upgrade từ `TEXT` → `FLOAT` hoặc `TIMESTAMP` |
+| `PROGRESS` | Tiến độ xử lý file (ví dụ: `50/210 (23%)`) |
 
 ---
 
-## Schema tự động
+## Schema động
 
-Khi file Excel có cột mới chưa tồn tại trong bảng DB, pipeline sẽ tự động `ALTER TABLE ADD COLUMN TEXT NULL` — không cần can thiệp thủ công.
+### Cột mới trong file mới
 
-Ngược lại, nếu file **thiếu cột bắt buộc** (cột đã có trong bảng do file trước tạo ra), file đó bị `SKIP_FILE`.
+Nếu file Excel có cột chưa tồn tại trong bảng DB, pipeline tự động `ALTER TABLE ADD COLUMN TEXT NULL`. Các row cũ sẽ có `NULL` ở cột đó.
+
+### File thiếu cột
+
+Nếu file Excel thiếu cột so với schema hiện tại, pipeline vẫn load bình thường — cột thiếu nhận giá trị `NULL`.
+
+### Upgrade kiểu dữ liệu (chỉ sau `init`)
+
+Sau khi toàn bộ data được load dưới dạng `TEXT`, pipeline thử upgrade từng cột:
+- Nếu toàn bộ giá trị cast được sang `FLOAT` → cột trở thành `FLOAT`
+- Nếu không, thử `TIMESTAMP`
+- Nếu cả hai đều fail → giữ `TEXT`
+
+Đây là cách duy nhất đảm bảo không có lỗi insert khi data lịch sử có format không đồng nhất.
 
 ---
 
@@ -187,16 +209,13 @@ Ngược lại, nếu file **thiếu cột bắt buộc** (cột đã có trong 
 ```
 connection to server at "localhost" failed
 ```
-→ Kiểm tra DB_HOST, DB_PORT trong `.env`. Đảm bảo PostgreSQL đang chạy.
+→ Kiểm tra `DB_HOST`, `DB_PORT` trong `.env`. Đảm bảo PostgreSQL đang chạy.
 
-**`SKIP_FILE` — missing columns**
-→ File không có đủ cột so với schema hiện tại. Kiểm tra file Excel có đúng định dạng không.
+**`daily` mode không load file nào**
+→ Không có file nào mới hơn lần chạy cuối. Kiểm tra `_run_log` trong DB hoặc chạy `--mode init`.
 
 **Lỗi `could not find driver`** (Windows)
 → Đảm bảo đã cài `psycopg2-binary` trong `.venv`:
 ```powershell
 .venv\Scripts\pip install psycopg2-binary==2.9.10
 ```
-
-**`daily` mode không load file nào**
-→ Không có file nào mới hơn lần chạy cuối. Kiểm tra `_run_log` trong DB hoặc chạy `--mode init`.
