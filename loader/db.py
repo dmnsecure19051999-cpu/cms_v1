@@ -1,7 +1,7 @@
 from datetime import datetime
 from sqlalchemy import (create_engine, text, inspect as sa_inspect,
-                         MetaData, Table, Column, Integer, String, DateTime, Engine)
-from sqlalchemy import MetaData as SAMetaData, insert as sa_insert
+                         MetaData, Table, Column, Integer, String, DateTime, Engine,
+                         insert as sa_insert)
 
 STATUS_SUCCESS = "success"
 
@@ -138,7 +138,7 @@ def is_file_loaded(engine: Engine, file_path: str) -> bool:
 
 def insert_run_log(engine: Engine, mode: str, started_at: datetime) -> int:
     with engine.connect() as conn:
-        meta = SAMetaData()
+        meta = MetaData()
         meta.reflect(bind=engine, only=["_run_log"])
         run_log_tbl = meta.tables["_run_log"]
         result = conn.execute(

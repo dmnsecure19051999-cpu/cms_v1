@@ -44,7 +44,7 @@ def run(mode: str):
             files = scan_changed_files(cfg.folder_map, last_run)
 
     if mode == "test":
-        table_buckets: dict = defaultdict(list)
+        table_buckets: dict[str, list] = defaultdict(list)
         for f in files:
             table_buckets[f["table_name"]].append(f)
         files = [f for bucket in table_buckets.values() for f in bucket[:10]]
