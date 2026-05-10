@@ -30,9 +30,15 @@ def _coerce_value(v, sa_type) -> object:
 def _ensure_table_schema(engine: Engine, df: pd.DataFrame, table_name: str, logger) -> None:
     existing = get_table_columns(engine, table_name)
     if not existing:
-        cols_sql = ", ".join(
-            f'"{_safe_col(c)}" TEXT NULL' for c in df.columns
-        ) + ', "source_file" TEXT NULL'
+        if engine.dialect.name == "postgresql":
+            uuid_def = '"uuid" UUID PRIMARY KEY DEFAULT gen_random_uuid()'
+        else:
+            uuid_def = '"uuid" TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16))))'
+        cols_sql = (
+            uuid_def + ", "
+            + ", ".join(f'"{_safe_col(c)}" TEXT NULL' for c in df.columns)
+            + ', "source_file" TEXT NULL'
+        )
         with engine.connect() as conn:
             conn.execute(text(f'CREATE TABLE "{table_name}" ({cols_sql})'))
             conn.commit()

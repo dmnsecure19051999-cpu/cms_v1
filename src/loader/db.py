@@ -6,7 +6,7 @@ from sqlalchemy import (create_engine, text, inspect as sa_inspect,
 STATUS_SUCCESS = "success"
 
 _ALLOWED_COL_TYPES = {"TEXT", "INTEGER", "FLOAT", "TIMESTAMP"}
-_UPGRADE_SKIP_COLS = {"source_file"}
+_UPGRADE_SKIP_COLS = {"source_file", "uuid"}
 
 
 def get_engine(db_url: str) -> Engine:
@@ -72,16 +72,18 @@ def drop_table(engine: Engine, table_name: str):
         conn.commit()
 
 
-_UPGRADE_CANDIDATE_TYPES = ("FLOAT", "TIMESTAMP")
+_UPGRADE_CANDIDATE_TYPES = ("NUMERIC", "TIMESTAMP")
 
 
-def upgrade_column_types(engine: Engine, table_name: str, logger=None):
-    cols = get_table_columns(engine, table_name)
-    if not cols:
+def upgrade_column_types(engine: Engine, table_name: str, logger=None,
+                          cols: list[str] | None = None):
+    all_cols = get_table_columns(engine, table_name)
+    if not all_cols:
         if logger:
             logger.warning(f"TYPE_UPGRADE — {table_name} not found, skipping")
         return
-    for col in cols:
+    target_cols = cols if cols is not None else all_cols
+    for col in target_cols:
         if col in _UPGRADE_SKIP_COLS:
             continue
         for sql_type in _UPGRADE_CANDIDATE_TYPES:

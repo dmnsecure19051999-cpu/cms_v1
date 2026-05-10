@@ -1,10 +1,10 @@
 # CMS Data Pipeline
 
-Đọc file Excel từ 3 thư mục (SharePoint-synced) và load vào PostgreSQL. Hỗ trợ 3 chế độ:
+Đọc file Excel từ 3 thư mục (SharePoint-synced) và load vào PostgreSQL. Hỗ trợ các chế độ:
 
 - **init** — drop toàn bộ bảng, load lại từ đầu, tự động upgrade kiểu dữ liệu sau khi load xong
 - **daily** — chỉ load file có thời gian sửa đổi mới hơn lần chạy cuối
-- **test** — load tối đa 10 file/bảng để kiểm tra nhanh
+- **run_script** — chạy file `.sql` trong thư mục `script/`, export kết quả ra Excel
 
 ---
 
@@ -45,7 +45,7 @@ Script sẽ tự động:
 1. Kiểm tra Python 3.10+
 2. Tạo `.venv` và cài requirements
 3. Tạo `.env` từ `.env.example` nếu chưa có
-4. (Linux) Hỏi có muốn start PostgreSQL qua Docker không
+4. Khởi động PostgreSQL qua Docker
 5. Test kết nối database
 
 ---
@@ -62,7 +62,7 @@ REVENUE_DIR=/home/user/sharepoint/revenue
 
 # Kết nối PostgreSQL
 DB_HOST=localhost
-DB_PORT=5432
+DB_PORT=5433
 DB_NAME=cms_db
 DB_USER=postgres
 DB_PASSWORD=your_password
@@ -82,9 +82,6 @@ DB_PASSWORD=your_password
 
 # Hàng ngày — chỉ load file mới
 .venv\Scripts\python main.py --mode daily
-
-# Kiểm tra nhanh — tối đa 10 file/bảng
-.venv\Scripts\python main.py --mode test
 ```
 
 ### Ubuntu / Linux
@@ -95,14 +92,27 @@ DB_PASSWORD=your_password
 
 # Hàng ngày — chỉ load file mới
 .venv/bin/python main.py --mode daily
-
-# Kiểm tra nhanh — tối đa 10 file/bảng
-.venv/bin/python main.py --mode test
 ```
 
 ---
 
-## PostgreSQL với Docker (chỉ để test local)
+## Chạy SQL script và export Excel
+
+Đặt file `.sql` vào thư mục `script/`, kết quả export ra `output/`.
+
+```bash
+# Chạy toàn bộ script trong script/
+.venv/bin/python main.py --mode run_script
+
+# Chạy 1 script cụ thể
+.venv/bin/python main.py --mode run_script --script script/my_query.sql
+```
+
+Output: `output/<tên_script>_YYYYMMDD_HHMMSS.xlsx`
+
+---
+
+## PostgreSQL với Docker
 
 File `docker-compose.yml` có sẵn để chạy PostgreSQL local:
 
@@ -110,7 +120,7 @@ File `docker-compose.yml` có sẵn để chạy PostgreSQL local:
 docker compose up -d
 ```
 
-Port mặc định: **5433** (dùng 5433 thay vì 5432 để tránh conflict với PostgreSQL đang cài sẵn).
+Port mặc định: **5433** (tránh conflict với PostgreSQL cài sẵn trên port 5432).
 
 Để dừng và xóa toàn bộ data:
 
@@ -124,7 +134,7 @@ docker compose down -v
 
 ```
 cms/
-├── main.py              # Entrypoint CLI (--mode init/daily/test)
+├── main.py              # Entrypoint CLI
 ├── src/
 │   ├── loader/
 │   │   ├── config.py        # Đọc .env, tạo DB URL, cấu hình header row per bảng
@@ -138,6 +148,8 @@ cms/
 │   ├── cancel/              # File Excel CancellationBillReport
 │   ├── customer_data/       # File Excel CustomerReport
 │   └── revenue/             # File Excel doanh thu (theo năm)
+├── script/              # File .sql để query và export
+├── output/              # Kết quả export Excel (tự tạo khi chạy run_script)
 ├── logs/                # Log files (tự tạo khi chạy)
 ├── .env                 # Config local (KHÔNG commit)
 ├── .env.example         # Template cấu hình
@@ -157,6 +169,8 @@ cms/
 | `_load_metadata` | Trạng thái từng file đã load |
 | `_run_log` | Lịch sử mỗi lần chạy pipeline |
 
+Mỗi bảng dữ liệu có cột `uuid UUID PRIMARY KEY` được sinh tự động (`gen_random_uuid()`).
+
 ---
 
 ## Log files
@@ -170,7 +184,7 @@ Log được lưu tại `logs/` với tên dạng `2026-05-10_19-30-00_20260510_
 | `SKIP_ROW` | Một row bị lỗi khi insert, các row khác vẫn load |
 | `NEW_COLUMN` | Phát hiện cột mới trong file, đã tự `ALTER TABLE ADD COLUMN` |
 | `MISSING_COLS` | File thiếu cột so với schema — vẫn load, cột thiếu = `NULL` |
-| `TYPE_UPGRADE` | Sau init: cột được upgrade từ `TEXT` → `FLOAT` hoặc `TIMESTAMP` |
+| `TYPE_UPGRADE` | Cột được upgrade từ `TEXT` → `NUMERIC` hoặc `TIMESTAMP` |
 | `PROGRESS` | Tiến độ xử lý file (ví dụ: `50/210 (23%)`) |
 
 ---
@@ -179,20 +193,20 @@ Log được lưu tại `logs/` với tên dạng `2026-05-10_19-30-00_20260510_
 
 ### Cột mới trong file mới
 
-Nếu file Excel có cột chưa tồn tại trong bảng DB, pipeline tự động `ALTER TABLE ADD COLUMN TEXT NULL`. Các row cũ sẽ có `NULL` ở cột đó.
+Nếu file Excel có cột chưa tồn tại trong bảng DB, pipeline tự động `ALTER TABLE ADD COLUMN TEXT NULL`. Sau đó upgrade kiểu dữ liệu cho cột mới đó (cả trong `init` lẫn `daily`).
 
 ### File thiếu cột
 
 Nếu file Excel thiếu cột so với schema hiện tại, pipeline vẫn load bình thường — cột thiếu nhận giá trị `NULL`.
 
-### Upgrade kiểu dữ liệu (chỉ sau `init`)
+### Upgrade kiểu dữ liệu
 
-Sau khi toàn bộ data được load dưới dạng `TEXT`, pipeline thử upgrade từng cột:
-- Nếu toàn bộ giá trị cast được sang `FLOAT` → cột trở thành `FLOAT`
+Sau khi data được load dưới dạng `TEXT`, pipeline thử upgrade từng cột:
+- Nếu toàn bộ giá trị cast được sang `NUMERIC` → cột trở thành `NUMERIC` (lưu số thập phân chính xác)
 - Nếu không, thử `TIMESTAMP`
 - Nếu cả hai đều fail → giữ `TEXT`
 
-Đây là cách duy nhất đảm bảo không có lỗi insert khi data lịch sử có format không đồng nhất.
+Chạy sau `init` cho toàn bộ bảng. Chạy sau `daily` cho các cột mới phát sinh.
 
 ---
 
@@ -214,10 +228,10 @@ Sau khi toàn bộ data được load dưới dạng `TEXT`, pipeline thử upgr
 ```
 connection to server at "localhost" failed
 ```
-→ Kiểm tra `DB_HOST`, `DB_PORT` trong `.env`. Đảm bảo PostgreSQL đang chạy.
+→ Kiểm tra `DB_HOST`, `DB_PORT` trong `.env`. Đảm bảo PostgreSQL đang chạy (`docker compose up -d`).
 
 **`daily` mode không load file nào**
-→ Không có file nào mới hơn lần chạy cuối. Kiểm tra `_run_log` trong DB hoặc chạy `--mode init`.
+→ Không có file nào có `mtime` mới hơn lần chạy cuối. Kiểm tra `_run_log` trong DB.
 
 **Lỗi `could not find driver`** (Windows)
 → Đảm bảo đã cài `psycopg2-binary` trong `.venv`:
