@@ -65,6 +65,37 @@ def add_column(engine: Engine, table_name: str, col_name: str, col_type: str = "
         conn.commit()
 
 
+def drop_table(engine: Engine, table_name: str):
+    with engine.connect() as conn:
+        conn.execute(text(f'DROP TABLE IF EXISTS "{table_name}"'))
+        conn.commit()
+
+
+def upgrade_column_types(engine: Engine, table_name: str, logger=None):
+    skip_cols = {"source_file"}
+    cols = get_table_columns(engine, table_name)
+    for col in cols:
+        if col in skip_cols:
+            continue
+        for sql_type, cast_expr in [
+            ("FLOAT", f'"{col}"::FLOAT'),
+            ("TIMESTAMP", f'"{col}"::TIMESTAMP'),
+        ]:
+            try:
+                with engine.connect() as conn:
+                    conn.execute(text(
+                        f'ALTER TABLE "{table_name}" '
+                        f'ALTER COLUMN "{col}" TYPE {sql_type} '
+                        f'USING {cast_expr}'
+                    ))
+                    conn.commit()
+                if logger:
+                    logger.info(f"TYPE_UPGRADE — {table_name}.{col} → {sql_type}")
+                break
+            except Exception:
+                pass
+
+
 def get_last_run_time(engine: Engine) -> datetime | None:
     with engine.connect() as conn:
         row = conn.execute(text("SELECT MAX(started_at) FROM _run_log")).fetchone()
