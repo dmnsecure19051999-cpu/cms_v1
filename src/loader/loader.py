@@ -140,7 +140,7 @@ def load_file(engine: Engine, df: pd.DataFrame, table_name: str,
         for idx, row in chunk.iterrows():
             try:
                 record = {
-                    f"p{i}": _coerce_value(v, col_sa_types.get(_safe_col(k)))
+                    f"p{i}": _coerce_value(v, col_sa_types.get(k))
                     for i, (k, v) in enumerate(row.items())
                 }
                 good_records.append((idx, record))
@@ -159,7 +159,11 @@ def load_file(engine: Engine, df: pd.DataFrame, table_name: str,
                 conn.execute(stmt, param_list)
                 conn.commit()
             loaded += len(good_records)
-        except Exception:
+        except Exception as bulk_exc:
+            if logger:
+                logger.warning(
+                    f"BULK_FAIL — {rel_path} — chunk starting row {chunk_start} — {bulk_exc}"
+                )
             # Fallback: row-by-row so individual bad rows are skipped
             for idx, record in good_records:
                 try:
