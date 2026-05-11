@@ -9,8 +9,8 @@ _ALLOWED_COL_TYPES = {"TEXT", "INTEGER", "FLOAT", "TIMESTAMP"}
 _UPGRADE_SKIP_COLS = {"source_file", "uuid"}
 
 
-def get_engine(db_url: str) -> Engine:
-    return create_engine(db_url)
+def get_engine(db_url: str, pool_size: int = 5) -> Engine:
+    return create_engine(db_url, pool_size=pool_size, max_overflow=2)
 
 
 def ensure_database(db_url: str):

@@ -3,7 +3,9 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent / "src"))
 
 import argparse
+import threading
 from collections import defaultdict
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 
 import pandas as pd
@@ -16,7 +18,7 @@ from loader.db import (get_engine, ensure_database, create_metadata_tables,
 from loader.logger import setup_logger
 from loader.file_scanner import scan_all_files, scan_changed_files
 from loader.excel_reader import read_excel
-from loader.loader import load_file, normalize_col_name
+from loader.loader import load_file, normalize_col_name, build_table_schemas
 
 
 def run(mode: str):
@@ -27,87 +29,134 @@ def run(mode: str):
 
     try:
         ensure_database(cfg.db_url)
-        engine = get_engine(cfg.db_url)
+        engine = get_engine(cfg.db_url, pool_size=5)
         create_metadata_tables(engine)
     except Exception as e:
         logger.critical(f"DB bootstrap failed: {e}")
         raise
 
-    last_run = get_last_run_time(engine) if mode == "daily" else None
-
     run_id = insert_run_log(engine, mode, start_time)
     logger.info(f"Run started — mode={mode} run_id={run_id}")
-
-    if mode == "init":
-        files = scan_all_files(cfg.folder_map)
-    else:
-        if last_run is None:
-            logger.info("No previous run found, scanning all files")
-            files = scan_all_files(cfg.folder_map)
-        else:
-            if last_run.tzinfo is None:
-                last_run = last_run.replace(tzinfo=timezone.utc)
-            files = scan_changed_files(cfg.folder_map, last_run)
-
-    if mode == "init":
-        table_names = {f["table_name"] for f in files}
-        logger.info("INIT — dropping existing tables")
-        for table_name in table_names:
-            drop_table(engine, table_name)
-
-    logger.info(f"Scanning: {len(files)} files to process")
 
     processed = skipped = errors = 0
     loaded_tables: set[str] = set()
     new_cols_by_table: dict[str, set[str]] = defaultdict(set)
-    total = len(files)
 
     try:
-        for idx, f in enumerate(files, 1):
-            path = f["file_path"]
-            rel = f["rel_path"]
-            table = f["table_name"]
-
-            header = cfg.table_header_map.get(table, 0)
-            df, read_err = read_excel(path, header=header)
-            if read_err:
-                logger.warning(f"SKIP_FILE — {rel} — cannot read: {read_err}")
-                upsert_load_metadata(engine, rel, table, 0, "failed")
-                skipped += 1
-                logger.info(f"PROGRESS — {idx}/{total} ({idx*100//total}%)")
-                continue
-
-            existing = get_table_columns(engine, table)
-            norm_df_cols = {normalize_col_name(c) for c in df.columns}
-            schema_cols = [c for c in existing if c not in ("source_file", "uuid")]
-            missing = [c for c in schema_cols if c not in norm_df_cols]
-            if missing:
-                logger.info(f"MISSING_COLS — {rel} — {missing} will be NULL")
-
-            new_cols = [c for c in norm_df_cols if c not in existing]
-
-            try:
-                stats = load_file(engine, df, table, rel, logger)
-                processed += 1
-                loaded_tables.add(table)
-                if new_cols:
-                    new_cols_by_table[table].update(new_cols)
-                logger.info(f"LOADED — {rel} — {stats['loaded']} rows ({stats['skipped']} skipped)")
-            except Exception as e:
-                errors += 1
-                logger.error(f"ERROR — {rel} — {e}")
-                upsert_load_metadata(engine, rel, table, 0, "failed")
-
-            logger.info(f"PROGRESS — {idx}/{total} ({idx*100//total}%)")
-
         if mode == "init":
-            logger.info("INIT — upgrading column types from actual data")
+            all_files = scan_all_files(cfg.folder_map)
+            logger.info(f"Scanning: {len(all_files)} files found")
+
+            table_names = {f["table_name"] for f in all_files}
+            logger.info("INIT — dropping existing tables")
+            for table_name in table_names:
+                drop_table(engine, table_name)
+
+            # Phase 1: build schemas from headers
+            logger.info("INIT — Phase 1: building table schemas from file headers")
+            files_to_load, n_skipped = build_table_schemas(engine, all_files, cfg, logger)
+            skipped += n_skipped
+
+            # Phase 2: parallel bulk load
+            total = len(files_to_load)
+            logger.info(f"INIT — Phase 2: loading {total} files (3 workers)")
+
+            counter_lock = threading.Lock()
+            completed_count = 0
+
+            def load_one(f: dict) -> dict:
+                path = f["file_path"]
+                rel = f["rel_path"]
+                table = f["table_name"]
+                header = cfg.table_header_map.get(table, 0)
+                df, read_err = read_excel(path, header=header)
+                if read_err:
+                    logger.warning(f"SKIP_FILE — {rel} — cannot read: {read_err}")
+                    upsert_load_metadata(engine, rel, table, 0, "failed")
+                    return {"rel": rel, "table": table, "outcome": "skip"}
+                try:
+                    stats = load_file(engine, df, table, rel, logger)
+                    logger.info(f"LOADED — {rel} — {stats['loaded']} rows ({stats['skipped']} skipped)")
+                    return {"rel": rel, "table": table, "outcome": "ok"}
+                except Exception as e:
+                    logger.error(f"ERROR — {rel} — {e}")
+                    upsert_load_metadata(engine, rel, table, 0, "failed")
+                    return {"rel": rel, "table": table, "outcome": "error"}
+
+            with ThreadPoolExecutor(max_workers=3) as executor:
+                futures = {executor.submit(load_one, f): f for f in files_to_load}
+                for future in as_completed(futures):
+                    result = future.result()
+                    with counter_lock:
+                        completed_count += 1
+                        pct = completed_count * 100 // total if total else 100
+                    logger.info(f"PROGRESS — {completed_count}/{total} ({pct}%)")
+                    if result["outcome"] == "ok":
+                        processed += 1
+                        loaded_tables.add(result["table"])
+                    elif result["outcome"] == "skip":
+                        skipped += 1
+                    else:
+                        errors += 1
+
+            # Phase 3: upgrade column types
+            logger.info("INIT — Phase 3: upgrading column types")
             for table_name in loaded_tables:
                 upgrade_column_types(engine, table_name, logger)
-        elif new_cols_by_table:
-            logger.info("DAILY — upgrading column types for new columns")
-            for table_name, cols in new_cols_by_table.items():
-                upgrade_column_types(engine, table_name, logger, cols=list(cols))
+
+        else:  # daily
+            last_run = get_last_run_time(engine)
+            if last_run is None:
+                logger.info("No previous run found, scanning all files")
+                files = scan_all_files(cfg.folder_map)
+            else:
+                if last_run.tzinfo is None:
+                    last_run = last_run.replace(tzinfo=timezone.utc)
+                files = scan_changed_files(cfg.folder_map, last_run)
+
+            logger.info(f"Scanning: {len(files)} files to process")
+            total = len(files)
+
+            for idx, f in enumerate(files, 1):
+                path = f["file_path"]
+                rel = f["rel_path"]
+                table = f["table_name"]
+                header = cfg.table_header_map.get(table, 0)
+                df, read_err = read_excel(path, header=header)
+                if read_err:
+                    logger.warning(f"SKIP_FILE — {rel} — cannot read: {read_err}")
+                    upsert_load_metadata(engine, rel, table, 0, "failed")
+                    skipped += 1
+                    logger.info(f"PROGRESS — {idx}/{total} ({idx*100//total}%)")
+                    continue
+
+                existing = get_table_columns(engine, table)
+                norm_df_cols = {normalize_col_name(c) for c in df.columns}
+                schema_cols = [c for c in existing if c not in ("source_file", "uuid")]
+                missing = [c for c in schema_cols if c not in norm_df_cols]
+                if missing:
+                    logger.info(f"MISSING_COLS — {rel} — {missing} will be NULL")
+
+                new_cols = [c for c in norm_df_cols if c not in existing]
+
+                try:
+                    stats = load_file(engine, df, table, rel, logger)
+                    processed += 1
+                    loaded_tables.add(table)
+                    if new_cols:
+                        new_cols_by_table[table].update(new_cols)
+                    logger.info(f"LOADED — {rel} — {stats['loaded']} rows ({stats['skipped']} skipped)")
+                except Exception as e:
+                    errors += 1
+                    logger.error(f"ERROR — {rel} — {e}")
+                    upsert_load_metadata(engine, rel, table, 0, "failed")
+
+                logger.info(f"PROGRESS — {idx}/{total} ({idx*100//total}%)")
+
+            if new_cols_by_table:
+                logger.info("DAILY — upgrading column types for new columns")
+                for table_name, cols in new_cols_by_table.items():
+                    upgrade_column_types(engine, table_name, logger, cols=list(cols))
 
     finally:
         finish_run_log(engine, run_id, processed, skipped, errors)
