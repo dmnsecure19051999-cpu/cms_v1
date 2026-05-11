@@ -104,6 +104,10 @@ def _ensure_table_schema(engine: Engine, df: pd.DataFrame, table_name: str, logg
 
 def load_file(engine: Engine, df: pd.DataFrame, table_name: str,
               rel_path: str, logger) -> dict:
+    df = df.copy()
+    df.columns = [normalize_col_name(c) for c in df.columns]
+    df = df.loc[:, ~df.columns.duplicated()]  # keep first when two raw cols normalize to same name
+
     _ensure_table_schema(engine, df, table_name, logger)
 
     if is_file_loaded(engine, rel_path):
@@ -114,8 +118,6 @@ def load_file(engine: Engine, df: pd.DataFrame, table_name: str,
             )
             conn.commit()
 
-    df = df.copy()
-    df.columns = [normalize_col_name(c) for c in df.columns]
     df["source_file"] = rel_path
 
     col_info = inspect(engine).get_columns(table_name)

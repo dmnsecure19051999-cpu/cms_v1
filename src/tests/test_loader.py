@@ -144,3 +144,15 @@ def test_load_large_file_bulk(engine):
     assert count == 600
 
 
+def test_load_file_deduplicates_normalized_columns(engine):
+    """Two raw columns normalizing to the same name must not cause duplicate-column INSERT error."""
+    from loader.loader import load_file
+    from loader.db import create_metadata_tables
+    create_metadata_tables(engine)
+    # "Note" and "Note " both normalize to "note" — first occurrence wins
+    df = pd.DataFrame({"ID": [1, 2], "Note": ["a", "b"], "Note ": ["x", "y"]})
+    stats = load_file(engine, df, "dedup_tbl", "test/dedup.xlsx", logger=None)
+    assert stats["loaded"] == 2
+    assert stats["skipped"] == 0
+
+
