@@ -1,11 +1,13 @@
 import re
 import unicodedata
+from collections import defaultdict
 
 import pandas as pd
 from sqlalchemy import Engine, inspect, text, types as sa_types
 
 from loader.db import (
     add_column,
+    create_table_with_columns,
     get_table_columns,
     is_file_loaded,
     upsert_load_metadata,
@@ -48,9 +50,6 @@ def build_table_schemas(engine, files: list[dict], cfg, logger) -> tuple[list[di
 
     Returns (files_to_load, n_skipped) — files_to_load excludes unreadable files.
     """
-    from collections import defaultdict
-    from loader.db import create_table_with_columns, upsert_load_metadata
-
     cols_by_table: dict[str, set[str]] = defaultdict(set)
     files_to_load = []
     n_skipped = 0

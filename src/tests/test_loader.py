@@ -1,3 +1,4 @@
+import logging
 import os
 import tempfile
 
@@ -95,7 +96,6 @@ def test_build_table_schemas_creates_tables(engine):
         class FakeCfg:
             table_header_map = {}
 
-        import logging
         logger = logging.getLogger("test")
         to_load, n_skipped = build_table_schemas(engine, files, FakeCfg(), logger)
 
