@@ -92,5 +92,11 @@ def test_create_table_with_columns_all_text(engine):
     create_table_with_columns(engine, "tbl_types", ["price", "note"])
     col_types = {c["name"]: str(c["type"]).upper()
                  for c in sa_inspect(engine).get_columns("tbl_types")}
-    assert "TEXT" in col_types["price"]
-    assert "TEXT" in col_types["note"]
+    assert col_types["price"] == "TEXT"
+    assert col_types["note"] == "TEXT"
+
+
+def test_create_table_with_columns_idempotent(engine):
+    from loader.db import create_table_with_columns
+    create_table_with_columns(engine, "tbl_idem", ["col_a"])
+    create_table_with_columns(engine, "tbl_idem", ["col_a"])  # must not raise

@@ -78,7 +78,7 @@ def create_table_with_columns(engine: Engine, table_name: str, columns: list[str
     else:
         uuid_def = '"uuid" TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16))))'
     col_defs = ", ".join(f'"{c}" TEXT NULL' for c in columns)
-    ddl = f'CREATE TABLE "{table_name}" ({uuid_def}, {col_defs}, "source_file" TEXT NULL)'
+    ddl = f'CREATE TABLE IF NOT EXISTS "{table_name}" ({uuid_def}, {col_defs}, "source_file" TEXT NULL)'
     with engine.connect() as conn:
         conn.execute(text(ddl))
         conn.commit()
