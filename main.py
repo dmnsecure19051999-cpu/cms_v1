@@ -154,7 +154,7 @@ def run(mode: str):
                     logger.error(f"ERROR — {rel} — {e}")
                     upsert_load_metadata(engine, rel, table, 0, "failed")
 
-                logger.info(f"PROGRESS — {idx}/{total} ({idx*100//total}%)")
+                logger.info(f"PROGRESS — {idx}/{total} ({idx*100//total if total else 100}%)")
 
             if new_cols_by_table:
                 logger.info("DAILY — upgrading column types for new columns")
