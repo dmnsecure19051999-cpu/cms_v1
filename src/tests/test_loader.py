@@ -130,3 +130,17 @@ def test_build_table_schemas_skips_bad_file(engine):
     assert len(to_load) == 0
 
 
+def test_load_large_file_bulk(engine):
+    """Files with >500 rows should be inserted via bulk path."""
+    from loader.loader import load_file
+    from loader.db import create_metadata_tables
+    create_metadata_tables(engine)
+    df = pd.DataFrame({"bill_id": list(range(600)), "amount": [1.0] * 600})
+    stats = load_file(engine, df, "cancellation_bills", "cancel/big.xlsx", logger=None)
+    assert stats["loaded"] == 600
+    assert stats["skipped"] == 0
+    with engine.connect() as conn:
+        count = conn.execute(text("SELECT COUNT(*) FROM cancellation_bills")).scalar()
+    assert count == 600
+
+

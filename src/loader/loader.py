@@ -123,28 +123,54 @@ def load_file(engine: Engine, df: pd.DataFrame, table_name: str,
     existing_cols = list(col_sa_types)
     df = df[[c for c in df.columns if c in existing_cols]]
 
+    col_keys = list(df.columns)
+    cols_sql = ", ".join(f'"{_safe_col(c)}"' for c in col_keys)
+    params_sql = ", ".join(f":p{i}" for i in range(len(col_keys)))
+    stmt = text(f'INSERT INTO "{table_name}" ({cols_sql}) VALUES ({params_sql})')
+
     loaded = 0
     skipped = 0
-    for idx, row in df.iterrows():
+    chunk_size = 500
+
+    for chunk_start in range(0, len(df), chunk_size):
+        chunk = df.iloc[chunk_start : chunk_start + chunk_size]
+
+        # Build param dicts, catching per-row coercion errors immediately
+        good_records: list[tuple[int, dict]] = []
+        for idx, row in chunk.iterrows():
+            try:
+                record = {
+                    f"p{i}": _coerce_value(v, col_sa_types.get(_safe_col(k)))
+                    for i, (k, v) in enumerate(row.items())
+                }
+                good_records.append((idx, record))
+            except Exception as e:
+                skipped += 1
+                if logger:
+                    logger.warning(f"SKIP_ROW — {rel_path} — row {idx} — {e}")
+
+        if not good_records:
+            continue
+
+        # Attempt bulk insert for this chunk
         try:
-            row_dict = {
-                _safe_col(k): _coerce_value(v, col_sa_types.get(k))
-                for k, v in row.items()
-            }
-            cols = ", ".join(f'"{c}"' for c in row_dict)
-            params = ", ".join(f":p{i}" for i in range(len(row_dict)))
-            param_dict = {f"p{i}": v for i, v in enumerate(row_dict.values())}
+            param_list = [r for _, r in good_records]
             with engine.connect() as conn:
-                conn.execute(
-                    text(f'INSERT INTO "{table_name}" ({cols}) VALUES ({params})'),
-                    param_dict,
-                )
+                conn.execute(stmt, param_list)
                 conn.commit()
-            loaded += 1
-        except Exception as e:
-            skipped += 1
-            if logger:
-                logger.warning(f"SKIP_ROW — {rel_path} — row {idx} — {e}")
+            loaded += len(good_records)
+        except Exception:
+            # Fallback: row-by-row so individual bad rows are skipped
+            for idx, record in good_records:
+                try:
+                    with engine.connect() as conn:
+                        conn.execute(stmt, record)
+                        conn.commit()
+                    loaded += 1
+                except Exception as e:
+                    skipped += 1
+                    if logger:
+                        logger.warning(f"SKIP_ROW — {rel_path} — row {idx} — {e}")
 
     status = "success" if skipped == 0 else "partial"
     upsert_load_metadata(engine, rel_path, table_name, loaded, status)
