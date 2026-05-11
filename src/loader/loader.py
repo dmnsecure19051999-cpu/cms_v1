@@ -9,6 +9,7 @@ from loader.db import (
     get_table_columns,
     is_file_loaded,
     upsert_load_metadata,
+    _uuid_col_def,
 )
 
 
@@ -45,12 +46,8 @@ def _coerce_value(v, sa_type) -> object:
 def _ensure_table_schema(engine: Engine, df: pd.DataFrame, table_name: str, logger) -> None:
     existing = get_table_columns(engine, table_name)
     if not existing:
-        if engine.dialect.name == "postgresql":
-            uuid_def = '"uuid" UUID PRIMARY KEY DEFAULT gen_random_uuid()'
-        else:
-            uuid_def = '"uuid" TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16))))'
         cols_sql = (
-            uuid_def + ", "
+            _uuid_col_def(engine) + ", "
             + ", ".join(f'"{normalize_col_name(c)}" TEXT NULL' for c in df.columns)
             + ', "source_file" TEXT NULL'
         )

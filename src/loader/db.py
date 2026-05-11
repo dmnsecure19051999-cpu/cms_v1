@@ -72,13 +72,17 @@ def drop_table(engine: Engine, table_name: str):
         conn.commit()
 
 
-def create_table_with_columns(engine: Engine, table_name: str, columns: list[str]):
+def _uuid_col_def(engine: Engine) -> str:
     if engine.dialect.name == "postgresql":
-        uuid_def = '"uuid" UUID PRIMARY KEY DEFAULT gen_random_uuid()'
-    else:
-        uuid_def = '"uuid" TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16))))'
+        return '"uuid" UUID PRIMARY KEY DEFAULT gen_random_uuid()'
+    return '"uuid" TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16))))'
+
+
+def create_table_with_columns(engine: Engine, table_name: str, columns: list[str]):
+    if not columns:
+        raise ValueError("columns must not be empty")
     col_defs = ", ".join(f'"{c}" TEXT NULL' for c in columns)
-    ddl = f'CREATE TABLE IF NOT EXISTS "{table_name}" ({uuid_def}, {col_defs}, "source_file" TEXT NULL)'
+    ddl = f'CREATE TABLE IF NOT EXISTS "{table_name}" ({_uuid_col_def(engine)}, {col_defs}, "source_file" TEXT NULL)'
     with engine.connect() as conn:
         conn.execute(text(ddl))
         conn.commit()
