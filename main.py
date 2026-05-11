@@ -83,6 +83,9 @@ def run(mode: str):
                     upsert_load_metadata(engine, rel, table, 0, "failed")
                     return {"rel": rel, "table": table, "outcome": "error"}
 
+            # as_completed is consumed on the main thread — no data race on
+            # processed/skipped/errors/loaded_tables; counter_lock guards completed_count
+            # only because pct must be consistent with the logged value.
             with ThreadPoolExecutor(max_workers=3) as executor:
                 futures = {executor.submit(load_one, f): f for f in files_to_load}
                 for future in as_completed(futures):
@@ -127,7 +130,7 @@ def run(mode: str):
                     logger.warning(f"SKIP_FILE — {rel} — cannot read: {read_err}")
                     upsert_load_metadata(engine, rel, table, 0, "failed")
                     skipped += 1
-                    logger.info(f"PROGRESS — {idx}/{total} ({idx*100//total}%)")
+                    logger.info(f"PROGRESS — {idx}/{total} ({idx*100//total if total else 100}%)")
                     continue
 
                 existing = get_table_columns(engine, table)
