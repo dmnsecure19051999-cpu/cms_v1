@@ -60,7 +60,7 @@ def build_table_schemas(engine, files: list[dict], cfg, logger) -> tuple[list[di
         table = f["table_name"]
         header = cfg.table_header_map.get(table, 0)
         try:
-            header_df = pd.read_excel(path, header=header, nrows=0)
+            header_df = pd.read_excel(path, header=header, nrows=0, engine="openpyxl")
             norm_cols = [normalize_col_name(c) for c in header_df.columns]
             cols_by_table[table].update(norm_cols)
             files_to_load.append(f)

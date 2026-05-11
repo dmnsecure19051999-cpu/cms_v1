@@ -92,8 +92,9 @@ def run(mode: str):
                     result = future.result()
                     with counter_lock:
                         completed_count += 1
-                        pct = completed_count * 100 // total if total else 100
-                    logger.info(f"PROGRESS — {completed_count}/{total} ({pct}%)")
+                        local_count = completed_count
+                        pct = local_count * 100 // total if total else 100
+                    logger.info(f"PROGRESS — {local_count}/{total} ({pct}%)")
                     if result["outcome"] == "ok":
                         processed += 1
                         loaded_tables.add(result["table"])

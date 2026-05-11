@@ -61,8 +61,12 @@ def get_table_columns(engine: Engine, table_name: str) -> list[str]:
 def add_column(engine: Engine, table_name: str, col_name: str, col_type: str = "TEXT"):
     if col_type.upper() not in _ALLOWED_COL_TYPES:
         raise ValueError(f"Unsupported col_type: {col_type!r}")
+    if engine.dialect.name == "postgresql":
+        ddl = f'ALTER TABLE "{table_name}" ADD COLUMN IF NOT EXISTS "{col_name}" {col_type}'
+    else:
+        ddl = f'ALTER TABLE "{table_name}" ADD "{col_name}" {col_type}'
     with engine.connect() as conn:
-        conn.execute(text(f'ALTER TABLE "{table_name}" ADD "{col_name}" {col_type}'))
+        conn.execute(text(ddl))
         conn.commit()
 
 
