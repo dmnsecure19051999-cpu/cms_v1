@@ -1,3 +1,6 @@
+import os
+import tempfile
+
 import pandas as pd
 import pytest
 from sqlalchemy import create_engine, text, inspect as sa_inspect
@@ -65,5 +68,65 @@ def test_skip_row_on_bad_data(engine):
     df = pd.DataFrame({"bill_id": [1, 2], "amount": ["not_a_number", 200.0]})
     stats = load_file(engine, df, "cancellation_bills", "cancel/test.xlsx", logger=None)
     assert stats["skipped"] >= 1
+
+
+def _make_xlsx(tmp_dir, filename, columns):
+    """Helper: create a minimal xlsx with given column headers."""
+    path = os.path.join(tmp_dir, filename)
+    pd.DataFrame({c: [] for c in columns}).to_excel(path, index=False)
+    return path
+
+
+def test_build_table_schemas_creates_tables(engine):
+    from loader.loader import build_table_schemas
+    from loader.db import create_metadata_tables, get_table_columns
+
+    create_metadata_tables(engine)
+
+    with tempfile.TemporaryDirectory() as tmp:
+        f1 = _make_xlsx(tmp, "a.xlsx", ["Bill ID", "Amount"])
+        f2 = _make_xlsx(tmp, "b.xlsx", ["Bill ID", "Note"])
+
+        files = [
+            {"file_path": f1, "rel_path": "cancel/a.xlsx", "table_name": "cancel_tbl"},
+            {"file_path": f2, "rel_path": "cancel/b.xlsx", "table_name": "cancel_tbl"},
+        ]
+
+        class FakeCfg:
+            table_header_map = {}
+
+        import logging
+        logger = logging.getLogger("test")
+        to_load, n_skipped = build_table_schemas(engine, files, FakeCfg(), logger)
+
+    assert n_skipped == 0
+    assert len(to_load) == 2
+    cols = get_table_columns(engine, "cancel_tbl")
+    assert "bill_id" in cols    # normalized
+    assert "amount" in cols
+    assert "note" in cols
+    assert "source_file" in cols
+
+
+def test_build_table_schemas_skips_bad_file(engine):
+    from loader.loader import build_table_schemas
+    from loader.db import create_metadata_tables
+
+    create_metadata_tables(engine)
+
+    files = [
+        {"file_path": "/nonexistent/bad.xlsx", "rel_path": "cancel/bad.xlsx",
+         "table_name": "cancel_tbl"},
+    ]
+
+    class FakeCfg:
+        table_header_map = {}
+
+    import logging
+    logger = logging.getLogger("test")
+    to_load, n_skipped = build_table_schemas(engine, files, FakeCfg(), logger)
+
+    assert n_skipped == 1
+    assert len(to_load) == 0
 
 

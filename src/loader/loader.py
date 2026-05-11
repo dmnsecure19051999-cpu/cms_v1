@@ -43,6 +43,42 @@ def _coerce_value(v, sa_type) -> object:
     return v
 
 
+def build_table_schemas(engine, files: list[dict], cfg, logger) -> tuple[list[dict], int]:
+    """Phase 1: read column headers only, create all tables with union schema.
+
+    Returns (files_to_load, n_skipped) — files_to_load excludes unreadable files.
+    """
+    from collections import defaultdict
+    from loader.db import create_table_with_columns, upsert_load_metadata
+
+    cols_by_table: dict[str, set[str]] = defaultdict(set)
+    files_to_load = []
+    n_skipped = 0
+
+    for f in files:
+        path = f["file_path"]
+        rel = f["rel_path"]
+        table = f["table_name"]
+        header = cfg.table_header_map.get(table, 0)
+        try:
+            header_df = pd.read_excel(path, header=header, nrows=0)
+            norm_cols = [normalize_col_name(c) for c in header_df.columns]
+            cols_by_table[table].update(norm_cols)
+            files_to_load.append(f)
+        except Exception as e:
+            if logger:
+                logger.warning(f"SKIP_FILE — {rel} — cannot read headers: {e}")
+            upsert_load_metadata(engine, rel, table, 0, "failed")
+            n_skipped += 1
+
+    for table_name, cols in cols_by_table.items():
+        create_table_with_columns(engine, table_name, sorted(cols))
+        if logger:
+            logger.info(f"SCHEMA — {table_name} — {len(cols)} columns")
+
+    return files_to_load, n_skipped
+
+
 def _ensure_table_schema(engine: Engine, df: pd.DataFrame, table_name: str, logger) -> None:
     existing = get_table_columns(engine, table_name)
     if not existing:
