@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from sqlalchemy import (create_engine, text, inspect as sa_inspect,
                          MetaData, Table, Column, Integer, String, DateTime, Engine,
                          insert as sa_insert)
@@ -140,12 +140,12 @@ def upsert_load_metadata(engine: Engine, file_path: str, table_name: str,
                 UPDATE _load_metadata
                 SET last_loaded_at = :now, row_count = :rc, status = :st
                 WHERE file_path = :fp
-            """), {"now": datetime.now(), "rc": row_count, "st": status, "fp": file_path})
+            """), {"now": datetime.now(timezone.utc), "rc": row_count, "st": status, "fp": file_path})
         else:
             conn.execute(text("""
                 INSERT INTO _load_metadata (file_path, table_name, last_loaded_at, row_count, status)
                 VALUES (:fp, :tn, :now, :rc, :st)
-            """), {"fp": file_path, "tn": table_name, "now": datetime.now(),
+            """), {"fp": file_path, "tn": table_name, "now": datetime.now(timezone.utc),
                    "rc": row_count, "st": status})
         conn.commit()
 
@@ -176,5 +176,5 @@ def finish_run_log(engine: Engine, run_id: int, processed: int, skipped: int, er
             UPDATE _run_log
             SET finished_at = :now, files_processed = :p, files_skipped = :s, errors = :e
             WHERE run_id = :rid
-        """), {"now": datetime.now(), "p": processed, "s": skipped, "e": errors, "rid": run_id})
+        """), {"now": datetime.now(timezone.utc), "p": processed, "s": skipped, "e": errors, "rid": run_id})
         conn.commit()
