@@ -167,16 +167,16 @@ def load_file(engine: Engine, df: pd.DataFrame, table_name: str,
                     f"BULK_FAIL — {rel_path} — chunk starting row {chunk_start} — {bulk_exc}"
                 )
             # Fallback: row-by-row so individual bad rows are skipped
-            for idx, record in good_records:
-                try:
-                    with engine.connect() as conn:
+            with engine.connect() as conn:
+                for idx, record in good_records:
+                    try:
                         conn.execute(stmt, record)
                         conn.commit()
-                    loaded += 1
-                except Exception as e:
-                    skipped += 1
-                    if logger:
-                        logger.warning(f"SKIP_ROW — {rel_path} — row {idx} — {e}")
+                        loaded += 1
+                    except Exception as e:
+                        skipped += 1
+                        if logger:
+                            logger.warning(f"SKIP_ROW — {rel_path} — row {idx} — {e}")
 
     status = "success" if skipped == 0 else "partial"
     upsert_load_metadata(engine, rel_path, table_name, loaded, status)

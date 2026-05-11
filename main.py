@@ -3,7 +3,6 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent / "src"))
 
 import argparse
-import threading
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
@@ -61,7 +60,6 @@ def run(mode: str):
             total = len(files_to_load)
             logger.info(f"INIT — Phase 2: loading {total} files (3 workers)")
 
-            counter_lock = threading.Lock()
             completed_count = 0
 
             def load_one(f: dict) -> dict:
@@ -83,18 +81,13 @@ def run(mode: str):
                     upsert_load_metadata(engine, rel, table, 0, "failed")
                     return {"rel": rel, "table": table, "outcome": "error"}
 
-            # as_completed is consumed on the main thread — no data race on
-            # processed/skipped/errors/loaded_tables; counter_lock guards completed_count
-            # only because pct must be consistent with the logged value.
             with ThreadPoolExecutor(max_workers=3) as executor:
                 futures = {executor.submit(load_one, f): f for f in files_to_load}
                 for future in as_completed(futures):
                     result = future.result()
-                    with counter_lock:
-                        completed_count += 1
-                        local_count = completed_count
-                        pct = local_count * 100 // total if total else 100
-                    logger.info(f"PROGRESS — {local_count}/{total} ({pct}%)")
+                    completed_count += 1
+                    pct = completed_count * 100 // total if total else 100
+                    logger.info(f"PROGRESS — {completed_count}/{total} ({pct}%)")
                     if result["outcome"] == "ok":
                         processed += 1
                         loaded_tables.add(result["table"])
