@@ -210,7 +210,8 @@ step "Testing database connection"
 
 DB_TEST_OUTPUT=$(
 "$PYTHON" -c "
-import time
+import sys, time
+sys.path.insert(0, 'src')
 from dotenv import load_dotenv
 load_dotenv(dotenv_path='.env')
 from loader.config import Config
