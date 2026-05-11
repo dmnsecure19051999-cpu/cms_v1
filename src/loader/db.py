@@ -72,6 +72,18 @@ def drop_table(engine: Engine, table_name: str):
         conn.commit()
 
 
+def create_table_with_columns(engine: Engine, table_name: str, columns: list[str]):
+    if engine.dialect.name == "postgresql":
+        uuid_def = '"uuid" UUID PRIMARY KEY DEFAULT gen_random_uuid()'
+    else:
+        uuid_def = '"uuid" TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16))))'
+    col_defs = ", ".join(f'"{c}" TEXT NULL' for c in columns)
+    ddl = f'CREATE TABLE "{table_name}" ({uuid_def}, {col_defs}, "source_file" TEXT NULL)'
+    with engine.connect() as conn:
+        conn.execute(text(ddl))
+        conn.commit()
+
+
 _UPGRADE_CANDIDATE_TYPES = ("NUMERIC", "TIMESTAMP")
 
 

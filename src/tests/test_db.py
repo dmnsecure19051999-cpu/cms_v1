@@ -74,3 +74,23 @@ def test_upgrade_column_types_skips_source_file(engine):
     assert "source_file" in get_table_columns(engine, "upg_tbl2")
     # amount was attempted (SQLite rejects, stays TEXT) — column must still exist
     assert "amount" in get_table_columns(engine, "upg_tbl2")
+
+
+def test_create_table_with_columns(engine):
+    from loader.db import create_table_with_columns, get_table_columns
+    create_table_with_columns(engine, "tbl_test", ["bill_id", "amount"])
+    cols = get_table_columns(engine, "tbl_test")
+    assert "bill_id" in cols
+    assert "amount" in cols
+    assert "source_file" in cols
+    assert "uuid" in cols
+
+
+def test_create_table_with_columns_all_text(engine):
+    from loader.db import create_table_with_columns
+    from sqlalchemy import inspect as sa_inspect
+    create_table_with_columns(engine, "tbl_types", ["price", "note"])
+    col_types = {c["name"]: str(c["type"]).upper()
+                 for c in sa_inspect(engine).get_columns("tbl_types")}
+    assert "TEXT" in col_types["price"]
+    assert "TEXT" in col_types["note"]
