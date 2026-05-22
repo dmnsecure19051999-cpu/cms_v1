@@ -125,7 +125,9 @@ def upgrade_column_types(engine: Engine, table_name: str, logger=None,
 
 def get_last_run_time(engine: Engine) -> datetime | None:
     with engine.connect() as conn:
-        row = conn.execute(text("SELECT MAX(started_at) FROM _run_log")).fetchone()
+        row = conn.execute(text(
+            "SELECT MAX(started_at) FROM _run_log WHERE finished_at IS NOT NULL"
+        )).fetchone()
         return row[0] if row and row[0] is not None else None
 
 
