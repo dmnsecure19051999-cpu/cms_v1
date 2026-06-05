@@ -204,6 +204,18 @@ def test_get_active_files_backward_compat_null_operation(engine):
     assert "cancel/old.xlsx" in paths
 
 
+def test_get_active_files_excludes_failed_only_files(engine):
+    """A file that only ever had failed loads must not be treated as active."""
+    from loader.db import create_metadata_tables, insert_load_metadata, get_active_files
+    create_metadata_tables(engine)
+    insert_load_metadata(engine, "cancel/bad.xlsx", "cancellation_bills", 0, "failed", "INSERT")
+    insert_load_metadata(engine, "cancel/ok.xlsx", "cancellation_bills", 100, "success", "INSERT")
+    active = get_active_files(engine)
+    paths = {r["file_path"] for r in active}
+    assert "cancel/bad.xlsx" not in paths
+    assert "cancel/ok.xlsx" in paths
+
+
 def test_archive_and_delete_file_creates_deleted_table(engine):
     from loader.db import (create_metadata_tables, create_table_with_columns,
                             insert_load_metadata, archive_and_delete_file)

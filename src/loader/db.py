@@ -175,8 +175,10 @@ def get_active_files(engine: Engine) -> list[dict]:
                 FROM _load_metadata
             ) t
             WHERE rn = 1
-              AND (operation IN ('INSERT', 'UPDATE')
-                   OR (operation IS NULL AND status = :s))
+              AND (
+                (operation IN ('INSERT', 'UPDATE') AND status != 'failed')
+                OR (operation IS NULL AND status = :s)
+              )
         """), {"s": STATUS_SUCCESS}).fetchall()
     return [{"file_path": r[0], "table_name": r[1]} for r in rows]
 
@@ -187,7 +189,7 @@ def ensure_deleted_table(engine: Engine, table_name: str):
     if not insp.has_table(deleted_table):
         with engine.connect() as conn:
             conn.execute(text(
-                f'CREATE TABLE "{deleted_table}" AS '
+                f'CREATE TABLE IF NOT EXISTS "{deleted_table}" AS '
                 f'SELECT * FROM "{table_name}" WHERE 1=0'
             ))
             conn.commit()
