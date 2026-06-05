@@ -12,8 +12,9 @@ import pandas as pd
 from loader.config import Config
 from loader.db import (get_engine, ensure_database, create_metadata_tables,
                         get_last_run_time, insert_run_log, finish_run_log,
-                        upsert_load_metadata, get_table_columns, drop_table,
-                        upgrade_column_types)
+                        insert_load_metadata, get_table_columns, drop_table,
+                        upgrade_column_types, get_active_files,
+                        archive_and_delete_file, is_file_loaded)
 from loader.logger import setup_logger
 from loader.file_scanner import scan_all_files, scan_changed_files
 from loader.excel_reader import read_excel
@@ -37,7 +38,7 @@ def run(mode: str):
     run_id = insert_run_log(engine, mode, start_time)
     logger.info(f"Run started — mode={mode} run_id={run_id}")
 
-    processed = skipped = errors = 0
+    processed = skipped = errors = deleted = 0
     loaded_tables: set[str] = set()
     new_cols_by_table: dict[str, set[str]] = defaultdict(set)
 
@@ -70,7 +71,7 @@ def run(mode: str):
                 df, read_err = read_excel(path, header=header)
                 if read_err:
                     logger.warning(f"SKIP_FILE — {rel} — cannot read: {read_err}")
-                    upsert_load_metadata(engine, rel, table, 0, "failed")
+                    insert_load_metadata(engine, rel, table, 0, "failed", "INSERT")
                     return {"rel": rel, "table": table, "outcome": "skip"}
                 try:
                     stats = load_file(engine, df, table, rel, logger)
@@ -78,7 +79,7 @@ def run(mode: str):
                     return {"rel": rel, "table": table, "outcome": "ok"}
                 except Exception as e:
                     logger.error(f"ERROR — {rel} — {e}")
-                    upsert_load_metadata(engine, rel, table, 0, "failed")
+                    insert_load_metadata(engine, rel, table, 0, "failed", "INSERT")
                     return {"rel": rel, "table": table, "outcome": "error"}
 
             with ThreadPoolExecutor(max_workers=3) as executor:
@@ -122,7 +123,8 @@ def run(mode: str):
                 df, read_err = read_excel(path, header=header)
                 if read_err:
                     logger.warning(f"SKIP_FILE — {rel} — cannot read: {read_err}")
-                    upsert_load_metadata(engine, rel, table, 0, "failed")
+                    op = "UPDATE" if is_file_loaded(engine, rel) else "INSERT"
+                    insert_load_metadata(engine, rel, table, 0, "failed", op)
                     skipped += 1
                     logger.info(f"PROGRESS — {idx}/{total} ({idx*100//total if total else 100}%)")
                     continue
@@ -146,7 +148,8 @@ def run(mode: str):
                 except Exception as e:
                     errors += 1
                     logger.error(f"ERROR — {rel} — {e}")
-                    upsert_load_metadata(engine, rel, table, 0, "failed")
+                    op = "UPDATE" if is_file_loaded(engine, rel) else "INSERT"
+                    insert_load_metadata(engine, rel, table, 0, "failed", op)
 
                 logger.info(f"PROGRESS — {idx}/{total} ({idx*100//total if total else 100}%)")
 
@@ -155,9 +158,31 @@ def run(mode: str):
                 for table_name, cols in new_cols_by_table.items():
                     upgrade_column_types(engine, table_name, logger, cols=list(cols))
 
+            # Detect and archive deleted files
+            logger.info("DAILY — checking for deleted files")
+            folder_name_map = {Path(folder).name: folder for folder in cfg.folder_map}
+            active_files = get_active_files(engine)
+            for active in active_files:
+                rel = active["file_path"]
+                table = active["table_name"]
+                parts = Path(rel).parts
+                if not parts:
+                    continue
+                abs_folder = folder_name_map.get(parts[0])
+                if abs_folder is None:
+                    continue
+                abs_path = Path(abs_folder).joinpath(*parts[1:])
+                if not abs_path.exists():
+                    try:
+                        archive_and_delete_file(engine, rel, table, logger)
+                        deleted += 1
+                    except Exception as e:
+                        errors += 1
+                        logger.error(f"DELETE_FAILED — {rel} — {e}")
+
     finally:
         finish_run_log(engine, run_id, processed, skipped, errors)
-        logger.info(f"Run finished — {processed} loaded, {skipped} skipped, {errors} errors")
+        logger.info(f"Run finished — {processed} loaded, {skipped} skipped, {errors} errors, {deleted} deleted")
 
 
 def run_scripts(script_path: str | None = None):
