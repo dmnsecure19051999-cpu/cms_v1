@@ -2,8 +2,8 @@
 
 Đọc file Excel từ 3 thư mục (SharePoint-synced) và load vào PostgreSQL. Hỗ trợ các chế độ:
 
-- **init** — drop toàn bộ bảng, load lại từ đầu, tự động upgrade kiểu dữ liệu sau khi load xong
-- **daily** — chỉ load file có thời gian sửa đổi mới hơn lần chạy cuối
+- **init** — lưu DDL views → drop views → drop tables → load lại từ đầu → upgrade kiểu dữ liệu → restore views
+- **daily** — chỉ load file có thời gian sửa đổi mới hơn lần chạy cuối; tự động detect và archive file bị xóa
 - **run_script** — chạy file `.sql` trong thư mục `script/`, export kết quả ra Excel
 
 ---
@@ -138,16 +138,18 @@ cms/
 ├── src/
 │   ├── loader/
 │   │   ├── config.py        # Đọc .env, tạo DB URL, cấu hình header row per bảng
-│   │   ├── db.py            # Tạo bảng, upsert metadata, run log, upgrade column types
+│   │   ├── db.py            # Tạo bảng, metadata, run log, upgrade types, archive deleted
 │   │   ├── excel_reader.py  # Đọc .xlsx, validate cột
 │   │   ├── file_scanner.py  # Quét folder, lọc file theo mtime
 │   │   ├── loader.py        # Load DataFrame vào DB, xử lý schema động
-│   │   └── logger.py        # Setup logging ra file + stdout
+│   │   ├── logger.py        # Setup logging ra file + stdout
+│   │   └── view_manager.py  # Lưu/drop/restore DB views xung quanh init
 │   └── tests/               # Unit tests (pytest, SQLite in-memory)
 ├── sample_input/
 │   ├── cancel/              # File Excel CancellationBillReport
 │   ├── customer_data/       # File Excel CustomerReport
 │   └── revenue/             # File Excel doanh thu (theo năm)
+├── view/                # DDL của DB views (tự tạo khi init, có thể commit)
 ├── script/              # File .sql để query và export
 ├── output/              # Kết quả export Excel (tự tạo khi chạy run_script)
 ├── logs/                # Log files (tự tạo khi chạy)
@@ -166,10 +168,21 @@ cms/
 | `cancellation_bills` | Dữ liệu từ thư mục `CANCEL_DIR` |
 | `customer_data` | Dữ liệu từ thư mục `CUSTOMER_DATA_DIR` |
 | `sales_revenue` | Dữ liệu từ thư mục `REVENUE_DIR` |
-| `_load_metadata` | Trạng thái từng file đã load |
+| `{tên_bảng}_deleted` | Rows được archive khi file nguồn bị xóa (tự tạo khi cần) |
+| `_load_metadata` | Lịch sử append-only mỗi lần load file (có cột `operation`) |
 | `_run_log` | Lịch sử mỗi lần chạy pipeline |
 
 Mỗi bảng dữ liệu có cột `uuid UUID PRIMARY KEY` được sinh tự động (`gen_random_uuid()`).
+
+#### Cột `operation` trong `_load_metadata`
+
+Pipeline ghi một row mới vào `_load_metadata` mỗi khi xử lý file, không overwrite:
+
+| Giá trị | Ý nghĩa |
+|---------|---------|
+| `INSERT` | File được load lần đầu |
+| `UPDATE` | File đã tồn tại trong DB, load lại với dữ liệu mới |
+| `DELETED` | File đã bị xóa khỏi thư mục nguồn, rows đã archive sang `*_deleted` |
 
 ---
 
@@ -186,6 +199,12 @@ Log được lưu tại `logs/` với tên dạng `2026-05-10_19-30-00_20260510_
 | `MISSING_COLS` | File thiếu cột so với schema — vẫn load, cột thiếu = `NULL` |
 | `TYPE_UPGRADE` | Cột được upgrade từ `TEXT` → `NUMERIC` hoặc `TIMESTAMP` |
 | `PROGRESS` | Tiến độ xử lý file (ví dụ: `50/210 (23%)`) |
+| `DELETED` | File bị xóa khỏi thư mục nguồn, rows đã archive sang `*_deleted` |
+| `DELETE_FAILED` | Lỗi khi archive file bị xóa |
+| `VIEW_SAVED` | DDL views đã lưu ra `view/` trước khi init drop tables |
+| `VIEW_DROPPED` | Views đã drop trước khi init drop tables |
+| `VIEW_RESTORED` | View đã recreate thành công sau khi init load xong |
+| `VIEW_RESTORE_FAILED` | View không recreate được (DDL lỗi) — file DDL vẫn giữ trong `view/` |
 
 ---
 
@@ -219,6 +238,31 @@ Chạy sau `init` cho toàn bộ bảng. Chạy sau `daily` cho các cột mới
 # Windows
 .venv\Scripts\python -m pytest src/tests/ -v
 ```
+
+---
+
+## Xử lý file bị xóa (`daily` mode)
+
+Khi chạy `daily`, pipeline so sánh danh sách file đang active trong `_load_metadata` với file thực tế trên disk. Nếu file đã biến mất:
+
+1. Rows thuộc file đó trong bảng chính được copy sang `{tên_bảng}_deleted` (thêm cột `deleted_at`)
+2. Rows trong bảng chính bị xóa
+3. Ghi `DELETED` vào `_load_metadata`
+
+Bảng `*_deleted` được tự tạo nếu chưa có. Dữ liệu archive không bao giờ bị xóa tự động.
+
+---
+
+## Quản lý Views (`init` mode)
+
+Khi chạy `init`, pipeline tự động bảo tồn các user-defined views trong DB:
+
+1. **Trước khi drop tables**: Lưu DDL của tất cả views ra `view/*.sql`, rồi drop views
+2. **Sau khi load xong**: Recreate lại views từ các file `*.sql`
+
+Nếu view nào restore thất bại (ví dụ: query của view tham chiếu cột đã bị đổi tên), pipeline log `VIEW_RESTORE_FAILED`, giữ file DDL trong `view/` để xử lý thủ công, và tiếp tục.
+
+Folder `view/` có thể commit vào git để lưu lịch sử DDL views của project.
 
 ---
 
