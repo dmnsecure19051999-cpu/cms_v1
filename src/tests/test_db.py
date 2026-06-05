@@ -100,3 +100,11 @@ def test_create_table_with_columns_idempotent(engine):
     from loader.db import create_table_with_columns
     create_table_with_columns(engine, "tbl_idem", ["col_a"])
     create_table_with_columns(engine, "tbl_idem", ["col_a"])  # must not raise
+
+
+def test_create_metadata_tables_has_operation_column(engine):
+    from loader.db import create_metadata_tables
+    from sqlalchemy import inspect as sa_inspect
+    create_metadata_tables(engine)
+    cols = [c["name"] for c in sa_inspect(engine).get_columns("_load_metadata")]
+    assert "operation" in cols

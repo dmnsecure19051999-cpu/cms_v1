@@ -49,6 +49,8 @@ def create_metadata_tables(engine: Engine):
         Column("errors", Integer, default=0),
     )
     meta.create_all(engine, checkfirst=True)
+    if "operation" not in get_table_columns(engine, "_load_metadata"):
+        add_column(engine, "_load_metadata", "operation", "TEXT")
 
 
 def get_table_columns(engine: Engine, table_name: str) -> list[str]:
