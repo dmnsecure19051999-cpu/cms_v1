@@ -231,7 +231,10 @@ def archive_and_delete_file(engine: Engine, file_path: str, table_name: str,
         return row_count
 
     except Exception as e:
-        insert_load_metadata(engine, file_path, table_name, 0, "failed", "DELETED")
+        try:
+            insert_load_metadata(engine, file_path, table_name, 0, "failed", "DELETED")
+        except Exception:
+            pass
         if logger:
             logger.error(f"DELETE_FAILED — {file_path} — {e}")
         raise
