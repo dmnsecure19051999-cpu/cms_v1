@@ -176,8 +176,8 @@ def get_active_files(engine: Engine) -> list[dict]:
             ) t
             WHERE rn = 1
               AND (operation IN ('INSERT', 'UPDATE')
-                   OR (operation IS NULL AND status = 'success'))
-        """)).fetchall()
+                   OR (operation IS NULL AND status = :s))
+        """), {"s": STATUS_SUCCESS}).fetchall()
     return [{"file_path": r[0], "table_name": r[1]} for r in rows]
 
 
