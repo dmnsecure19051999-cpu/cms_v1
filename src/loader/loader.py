@@ -10,7 +10,7 @@ from loader.db import (
     create_table_with_columns,
     get_table_columns,
     is_file_loaded,
-    upsert_load_metadata,
+    insert_load_metadata,
     _uuid_col_def,
 )
 
@@ -67,7 +67,7 @@ def build_table_schemas(engine, files: list[dict], cfg, logger) -> tuple[list[di
         except Exception as e:
             if logger:
                 logger.warning(f"SKIP_FILE — {rel} — cannot read headers: {e}")
-            upsert_load_metadata(engine, rel, table, 0, "failed")
+            insert_load_metadata(engine, rel, table, 0, "failed", "INSERT")
             n_skipped += 1
 
     for table_name, cols in cols_by_table.items():
@@ -110,7 +110,9 @@ def load_file(engine: Engine, df: pd.DataFrame, table_name: str,
 
     _ensure_table_schema(engine, df, table_name, logger)
 
-    if is_file_loaded(engine, rel_path):
+    already_loaded = is_file_loaded(engine, rel_path)
+    operation = "UPDATE" if already_loaded else "INSERT"
+    if already_loaded:
         with engine.connect() as conn:
             conn.execute(
                 text(f'DELETE FROM "{table_name}" WHERE source_file = :fp'),
@@ -179,5 +181,5 @@ def load_file(engine: Engine, df: pd.DataFrame, table_name: str,
                             logger.warning(f"SKIP_ROW — {rel_path} — row {idx} — {e}")
 
     status = "success" if skipped == 0 else "partial"
-    upsert_load_metadata(engine, rel_path, table_name, loaded, status)
+    insert_load_metadata(engine, rel_path, table_name, loaded, status, operation)
     return {"loaded": loaded, "skipped": skipped}

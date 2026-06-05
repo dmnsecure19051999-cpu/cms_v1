@@ -156,3 +156,37 @@ def test_load_file_deduplicates_normalized_columns(engine):
     assert stats["skipped"] == 0
 
 
+def test_load_file_logs_insert_operation(engine):
+    from loader.loader import load_file
+    from loader.db import create_metadata_tables
+    create_metadata_tables(engine)
+    df = pd.DataFrame({"bill_id": [1, 2], "amount": [100.0, 200.0]})
+    load_file(engine, df, "cancellation_bills", "cancel/test.xlsx", logger=None)
+    with engine.connect() as conn:
+        row = conn.execute(text("""
+            SELECT operation FROM _load_metadata
+            WHERE file_path = 'cancel/test.xlsx'
+            ORDER BY last_loaded_at DESC LIMIT 1
+        """)).fetchone()
+    assert row[0] == "INSERT"
+
+
+def test_load_file_logs_update_operation_on_reload(engine):
+    from loader.loader import load_file
+    from loader.db import create_metadata_tables
+    create_metadata_tables(engine)
+    df1 = pd.DataFrame({"bill_id": [1], "amount": [100.0]})
+    load_file(engine, df1, "cancellation_bills", "cancel/test.xlsx", logger=None)
+    df2 = pd.DataFrame({"bill_id": [2], "amount": [200.0]})
+    load_file(engine, df2, "cancellation_bills", "cancel/test.xlsx", logger=None)
+    with engine.connect() as conn:
+        rows = conn.execute(text("""
+            SELECT operation FROM _load_metadata
+            WHERE file_path = 'cancel/test.xlsx'
+            ORDER BY last_loaded_at ASC
+        """)).fetchall()
+    ops = [r[0] for r in rows]
+    assert ops[0] == "INSERT"
+    assert ops[1] == "UPDATE"
+
+
