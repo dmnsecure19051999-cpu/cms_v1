@@ -155,3 +155,50 @@ def test_is_file_loaded_backward_compat_null_operation(engine):
         """), {"now": datetime.now(timezone.utc)})
         conn.commit()
     assert is_file_loaded(engine, "cancel/old.xlsx") is True
+
+
+def test_get_active_files_returns_inserted_files(engine):
+    from loader.db import create_metadata_tables, insert_load_metadata, get_active_files
+    create_metadata_tables(engine)
+    insert_load_metadata(engine, "cancel/f1.xlsx", "cancellation_bills", 100, "success", "INSERT")
+    insert_load_metadata(engine, "cancel/f2.xlsx", "cancellation_bills", 50, "success", "INSERT")
+    active = get_active_files(engine)
+    paths = {r["file_path"] for r in active}
+    assert "cancel/f1.xlsx" in paths
+    assert "cancel/f2.xlsx" in paths
+
+
+def test_get_active_files_excludes_deleted(engine):
+    from loader.db import create_metadata_tables, insert_load_metadata, get_active_files
+    create_metadata_tables(engine)
+    insert_load_metadata(engine, "cancel/f1.xlsx", "cancellation_bills", 100, "success", "INSERT")
+    insert_load_metadata(engine, "cancel/f1.xlsx", "cancellation_bills", 100, "success", "DELETED")
+    insert_load_metadata(engine, "cancel/f2.xlsx", "cancellation_bills", 50, "success", "INSERT")
+    active = get_active_files(engine)
+    paths = {r["file_path"] for r in active}
+    assert "cancel/f1.xlsx" not in paths
+    assert "cancel/f2.xlsx" in paths
+
+
+def test_get_active_files_includes_updated_files(engine):
+    from loader.db import create_metadata_tables, insert_load_metadata, get_active_files
+    create_metadata_tables(engine)
+    insert_load_metadata(engine, "cancel/f1.xlsx", "cancellation_bills", 100, "success", "INSERT")
+    insert_load_metadata(engine, "cancel/f1.xlsx", "cancellation_bills", 102, "success", "UPDATE")
+    active = get_active_files(engine)
+    assert len([r for r in active if r["file_path"] == "cancel/f1.xlsx"]) == 1
+
+
+def test_get_active_files_backward_compat_null_operation(engine):
+    from loader.db import create_metadata_tables, get_active_files
+    from datetime import datetime, timezone
+    create_metadata_tables(engine)
+    with engine.connect() as conn:
+        conn.execute(text("""
+            INSERT INTO _load_metadata (file_path, table_name, last_loaded_at, row_count, status)
+            VALUES ('cancel/old.xlsx', 'cancellation_bills', :now, 50, 'success')
+        """), {"now": datetime.now(timezone.utc)})
+        conn.commit()
+    active = get_active_files(engine)
+    paths = {r["file_path"] for r in active}
+    assert "cancel/old.xlsx" in paths

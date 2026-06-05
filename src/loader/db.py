@@ -164,6 +164,23 @@ def is_file_loaded(engine: Engine, file_path: str) -> bool:
     return operation in ('INSERT', 'UPDATE') or (operation is None and status == STATUS_SUCCESS)
 
 
+def get_active_files(engine: Engine) -> list[dict]:
+    with engine.connect() as conn:
+        rows = conn.execute(text("""
+            SELECT file_path, table_name FROM (
+                SELECT file_path, table_name, operation, status,
+                       ROW_NUMBER() OVER (
+                           PARTITION BY file_path ORDER BY last_loaded_at DESC
+                       ) AS rn
+                FROM _load_metadata
+            ) t
+            WHERE rn = 1
+              AND (operation IN ('INSERT', 'UPDATE')
+                   OR (operation IS NULL AND status = 'success'))
+        """)).fetchall()
+    return [{"file_path": r[0], "table_name": r[1]} for r in rows]
+
+
 def insert_run_log(engine: Engine, mode: str, started_at: datetime) -> int:
     with engine.connect() as conn:
         meta = MetaData()
