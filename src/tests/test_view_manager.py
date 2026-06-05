@@ -54,3 +54,22 @@ def test_save_views_creates_dir_if_missing(engine, tmp_path):
     save_views(engine, new_dir)
     assert new_dir.exists()
     assert (new_dir / "v_x.sql").exists()
+
+
+def test_drop_all_views_removes_views(engine):
+    from loader.view_manager import drop_all_views
+    from sqlalchemy import inspect as sa_inspect
+    with engine.connect() as conn:
+        conn.execute(text('CREATE VIEW "v_drop1" AS SELECT 1 AS a'))
+        conn.execute(text('CREATE VIEW "v_drop2" AS SELECT 2 AS b'))
+        conn.commit()
+    count = drop_all_views(engine)
+    assert count == 2
+    view_names = sa_inspect(engine).get_view_names()
+    assert "v_drop1" not in view_names
+    assert "v_drop2" not in view_names
+
+
+def test_drop_all_views_no_views_returns_zero(engine):
+    from loader.view_manager import drop_all_views
+    assert drop_all_views(engine) == 0

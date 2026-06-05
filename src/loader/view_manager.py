@@ -59,7 +59,17 @@ def save_views(engine: Engine, view_dir: Path) -> list[str]:
 
 
 def drop_all_views(engine: Engine) -> int:
-    raise NotImplementedError
+    views = _get_user_views(engine)
+    if not views:
+        return 0
+    with engine.connect() as conn:
+        for v in views:
+            if engine.dialect.name == "postgresql":
+                conn.execute(text(f'DROP VIEW IF EXISTS "{v["schema"]}"."{v["name"]}" CASCADE'))
+            else:
+                conn.execute(text(f'DROP VIEW IF EXISTS "{v["name"]}"'))
+        conn.commit()
+    return len(views)
 
 
 def restore_views(engine: Engine, view_dir: Path, logger=None) -> tuple[int, int]:
