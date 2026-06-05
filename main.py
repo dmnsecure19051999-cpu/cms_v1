@@ -19,6 +19,7 @@ from loader.logger import setup_logger
 from loader.file_scanner import scan_all_files, scan_changed_files
 from loader.excel_reader import read_excel
 from loader.loader import load_file, normalize_col_name, build_table_schemas
+from loader.view_manager import save_views, drop_all_views, restore_views
 
 
 def run(mode: str):
@@ -48,6 +49,14 @@ def run(mode: str):
             logger.info(f"Scanning: {len(all_files)} files found")
 
             table_names = {f["table_name"] for f in all_files}
+
+            view_dir = Path("view")
+            saved_views = save_views(engine, view_dir)
+            if saved_views:
+                logger.info(f"VIEW_SAVED — {len(saved_views)} views saved to view/")
+                n_dropped = drop_all_views(engine)
+                logger.info(f"VIEW_DROPPED — {n_dropped} views dropped")
+
             logger.info("INIT — dropping existing tables")
             for table_name in table_names:
                 drop_table(engine, table_name)
@@ -101,6 +110,14 @@ def run(mode: str):
             logger.info("INIT — Phase 3: upgrading column types")
             for table_name in loaded_tables:
                 upgrade_column_types(engine, table_name, logger)
+
+            # Phase 4: restore views
+            if saved_views:
+                logger.info("INIT — Phase 4: restoring views")
+                restored, view_failed = restore_views(engine, view_dir, logger)
+                logger.info(f"INIT — {restored} views restored, {view_failed} failed")
+                if view_failed:
+                    errors += view_failed
 
         else:  # daily
             last_run = get_last_run_time(engine)
