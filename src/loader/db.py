@@ -181,6 +181,62 @@ def get_active_files(engine: Engine) -> list[dict]:
     return [{"file_path": r[0], "table_name": r[1]} for r in rows]
 
 
+def ensure_deleted_table(engine: Engine, table_name: str):
+    deleted_table = f"{table_name}_deleted"
+    insp = sa_inspect(engine)
+    if not insp.has_table(deleted_table):
+        with engine.connect() as conn:
+            conn.execute(text(
+                f'CREATE TABLE "{deleted_table}" AS '
+                f'SELECT * FROM "{table_name}" WHERE 1=0'
+            ))
+            conn.commit()
+        add_column(engine, deleted_table, "deleted_at", "TIMESTAMP")
+    else:
+        main_cols = set(get_table_columns(engine, table_name))
+        deleted_cols = set(get_table_columns(engine, deleted_table))
+        for col in main_cols:
+            if col not in deleted_cols:
+                add_column(engine, deleted_table, col, "TEXT")
+
+
+def archive_and_delete_file(engine: Engine, file_path: str, table_name: str,
+                             logger=None) -> int:
+    deleted_table = f"{table_name}_deleted"
+    try:
+        ensure_deleted_table(engine, table_name)
+
+        main_cols = get_table_columns(engine, table_name)
+        cols_sql = ", ".join(f'"{c}"' for c in main_cols)
+
+        with engine.connect() as conn:
+            row_count = conn.execute(text(
+                f'SELECT COUNT(*) FROM "{table_name}" WHERE source_file = :fp'
+            ), {"fp": file_path}).scalar() or 0
+
+            conn.execute(text(
+                f'INSERT INTO "{deleted_table}" ({cols_sql}, "deleted_at") '
+                f'SELECT {cols_sql}, CURRENT_TIMESTAMP '
+                f'FROM "{table_name}" WHERE source_file = :fp'
+            ), {"fp": file_path})
+
+            conn.execute(text(
+                f'DELETE FROM "{table_name}" WHERE source_file = :fp'
+            ), {"fp": file_path})
+            conn.commit()
+
+        insert_load_metadata(engine, file_path, table_name, row_count, "success", "DELETED")
+        if logger:
+            logger.info(f"DELETED — {file_path} — {row_count} rows archived to {deleted_table}")
+        return row_count
+
+    except Exception as e:
+        insert_load_metadata(engine, file_path, table_name, 0, "failed", "DELETED")
+        if logger:
+            logger.error(f"DELETE_FAILED — {file_path} — {e}")
+        raise
+
+
 def insert_run_log(engine: Engine, mode: str, started_at: datetime) -> int:
     with engine.connect() as conn:
         meta = MetaData()

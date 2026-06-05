@@ -202,3 +202,100 @@ def test_get_active_files_backward_compat_null_operation(engine):
     active = get_active_files(engine)
     paths = {r["file_path"] for r in active}
     assert "cancel/old.xlsx" in paths
+
+
+def test_archive_and_delete_file_creates_deleted_table(engine):
+    from loader.db import (create_metadata_tables, create_table_with_columns,
+                            insert_load_metadata, archive_and_delete_file)
+    from sqlalchemy import inspect as sa_inspect
+    create_metadata_tables(engine)
+    create_table_with_columns(engine, "cancellation_bills", ["bill_id", "amount"])
+    with engine.connect() as conn:
+        conn.execute(text(
+            "INSERT INTO cancellation_bills (bill_id, amount, source_file) VALUES ('1', '100', 'cancel/f1.xlsx')"
+        ))
+        conn.commit()
+    insert_load_metadata(engine, "cancel/f1.xlsx", "cancellation_bills", 1, "success", "INSERT")
+    archive_and_delete_file(engine, "cancel/f1.xlsx", "cancellation_bills", logger=None)
+    assert "cancellation_bills_deleted" in sa_inspect(engine).get_table_names()
+
+
+def test_archive_and_delete_file_copies_rows(engine):
+    from loader.db import (create_metadata_tables, create_table_with_columns,
+                            insert_load_metadata, archive_and_delete_file)
+    create_metadata_tables(engine)
+    create_table_with_columns(engine, "cancellation_bills", ["bill_id", "amount"])
+    with engine.connect() as conn:
+        conn.execute(text(
+            "INSERT INTO cancellation_bills (bill_id, amount, source_file) VALUES ('1', '100', 'cancel/f1.xlsx')"
+        ))
+        conn.execute(text(
+            "INSERT INTO cancellation_bills (bill_id, amount, source_file) VALUES ('2', '200', 'cancel/f1.xlsx')"
+        ))
+        conn.commit()
+    insert_load_metadata(engine, "cancel/f1.xlsx", "cancellation_bills", 2, "success", "INSERT")
+    count = archive_and_delete_file(engine, "cancel/f1.xlsx", "cancellation_bills", logger=None)
+    assert count == 2
+    with engine.connect() as conn:
+        archived = conn.execute(text(
+            "SELECT COUNT(*) FROM cancellation_bills_deleted WHERE source_file = 'cancel/f1.xlsx'"
+        )).scalar()
+    assert archived == 2
+
+
+def test_archive_and_delete_file_removes_from_main(engine):
+    from loader.db import (create_metadata_tables, create_table_with_columns,
+                            insert_load_metadata, archive_and_delete_file)
+    create_metadata_tables(engine)
+    create_table_with_columns(engine, "cancellation_bills", ["bill_id", "amount"])
+    with engine.connect() as conn:
+        conn.execute(text(
+            "INSERT INTO cancellation_bills (bill_id, amount, source_file) VALUES ('1', '100', 'cancel/f1.xlsx')"
+        ))
+        conn.commit()
+    insert_load_metadata(engine, "cancel/f1.xlsx", "cancellation_bills", 1, "success", "INSERT")
+    archive_and_delete_file(engine, "cancel/f1.xlsx", "cancellation_bills", logger=None)
+    with engine.connect() as conn:
+        remaining = conn.execute(text(
+            "SELECT COUNT(*) FROM cancellation_bills WHERE source_file = 'cancel/f1.xlsx'"
+        )).scalar()
+    assert remaining == 0
+
+
+def test_archive_and_delete_file_logs_deleted_operation(engine):
+    from loader.db import (create_metadata_tables, create_table_with_columns,
+                            insert_load_metadata, archive_and_delete_file)
+    create_metadata_tables(engine)
+    create_table_with_columns(engine, "cancellation_bills", ["bill_id", "amount"])
+    with engine.connect() as conn:
+        conn.execute(text(
+            "INSERT INTO cancellation_bills (bill_id, amount, source_file) VALUES ('1', '100', 'cancel/f1.xlsx')"
+        ))
+        conn.commit()
+    insert_load_metadata(engine, "cancel/f1.xlsx", "cancellation_bills", 1, "success", "INSERT")
+    archive_and_delete_file(engine, "cancel/f1.xlsx", "cancellation_bills", logger=None)
+    with engine.connect() as conn:
+        row = conn.execute(text("""
+            SELECT operation, status FROM _load_metadata
+            WHERE file_path = 'cancel/f1.xlsx'
+            ORDER BY last_loaded_at DESC LIMIT 1
+        """)).fetchone()
+    assert row[0] == "DELETED"
+    assert row[1] == "success"
+
+
+def test_archive_and_delete_file_deleted_table_has_deleted_at(engine):
+    from loader.db import (create_metadata_tables, create_table_with_columns,
+                            insert_load_metadata, archive_and_delete_file)
+    from sqlalchemy import inspect as sa_inspect
+    create_metadata_tables(engine)
+    create_table_with_columns(engine, "cancellation_bills", ["bill_id"])
+    with engine.connect() as conn:
+        conn.execute(text(
+            "INSERT INTO cancellation_bills (bill_id, source_file) VALUES ('1', 'cancel/f1.xlsx')"
+        ))
+        conn.commit()
+    insert_load_metadata(engine, "cancel/f1.xlsx", "cancellation_bills", 1, "success", "INSERT")
+    archive_and_delete_file(engine, "cancel/f1.xlsx", "cancellation_bills", logger=None)
+    cols = [c["name"] for c in sa_inspect(engine).get_columns("cancellation_bills_deleted")]
+    assert "deleted_at" in cols
