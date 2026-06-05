@@ -73,3 +73,59 @@ def test_drop_all_views_removes_views(engine):
 def test_drop_all_views_no_views_returns_zero(engine):
     from loader.view_manager import drop_all_views
     assert drop_all_views(engine) == 0
+
+
+def test_restore_views_recreates_views(engine, tmp_path):
+    from loader.view_manager import save_views, drop_all_views, restore_views
+    from sqlalchemy import inspect as sa_inspect
+    with engine.connect() as conn:
+        conn.execute(text('CREATE VIEW "v_restore" AS SELECT 99 AS n'))
+        conn.commit()
+    save_views(engine, tmp_path)
+    drop_all_views(engine)
+    restored, failed = restore_views(engine, tmp_path, logger=None)
+    assert restored == 1
+    assert failed == 0
+    assert "v_restore" in sa_inspect(engine).get_view_names()
+
+
+def test_restore_views_failed_keeps_file(engine, tmp_path):
+    from loader.view_manager import restore_views
+    with engine.connect() as conn:
+        conn.execute(text('CREATE VIEW "existing_view" AS SELECT 1 AS x'))
+        conn.commit()
+    bad_sql_file = tmp_path / "existing_view.sql"
+    bad_sql_file.write_text('CREATE VIEW "existing_view" AS SELECT 2 AS y;')
+    restored, failed = restore_views(engine, tmp_path, logger=None)
+    assert restored == 0
+    assert failed == 1
+    assert bad_sql_file.exists()
+
+
+def test_restore_views_empty_dir_returns_zero(engine, tmp_path):
+    from loader.view_manager import restore_views
+    restored, failed = restore_views(engine, tmp_path, logger=None)
+    assert restored == 0
+    assert failed == 0
+
+
+def test_restore_views_missing_dir_returns_zero(engine, tmp_path):
+    from loader.view_manager import restore_views
+    missing = tmp_path / "no_such_dir"
+    restored, failed = restore_views(engine, missing, logger=None)
+    assert restored == 0
+    assert failed == 0
+
+
+def test_save_drop_restore_roundtrip(engine, tmp_path):
+    from loader.view_manager import save_views, drop_all_views, restore_views
+    from sqlalchemy import inspect as sa_inspect
+    with engine.connect() as conn:
+        conn.execute(text("CREATE TABLE t (id INTEGER, val TEXT)"))
+        conn.execute(text('CREATE VIEW "v_roundtrip" AS SELECT id, val FROM t'))
+        conn.commit()
+    save_views(engine, tmp_path)
+    drop_all_views(engine)
+    assert "v_roundtrip" not in sa_inspect(engine).get_view_names()
+    restore_views(engine, tmp_path, logger=None)
+    assert "v_roundtrip" in sa_inspect(engine).get_view_names()

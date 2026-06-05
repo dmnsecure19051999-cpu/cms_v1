@@ -73,4 +73,26 @@ def drop_all_views(engine: Engine) -> int:
 
 
 def restore_views(engine: Engine, view_dir: Path, logger=None) -> tuple[int, int]:
-    raise NotImplementedError
+    if not view_dir.exists():
+        return 0, 0
+    sql_files = sorted(view_dir.glob("*.sql"))
+    if not sql_files:
+        return 0, 0
+
+    restored = 0
+    failed = 0
+    for sql_file in sql_files:
+        view_name = sql_file.stem
+        sql = sql_file.read_text(encoding="utf-8").strip()
+        try:
+            with engine.connect() as conn:
+                conn.execute(text(sql))
+                conn.commit()
+            if logger:
+                logger.info(f"VIEW_RESTORED — {view_name}")
+            restored += 1
+        except Exception as e:
+            if logger:
+                logger.warning(f"VIEW_RESTORE_FAILED — {view_name} — {e}")
+            failed += 1
+    return restored, failed
