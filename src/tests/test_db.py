@@ -108,3 +108,50 @@ def test_create_metadata_tables_has_operation_column(engine):
     create_metadata_tables(engine)
     cols = [c["name"] for c in sa_inspect(engine).get_columns("_load_metadata")]
     assert "operation" in cols
+
+
+def test_insert_load_metadata_appends_rows(engine):
+    from loader.db import create_metadata_tables, insert_load_metadata
+    create_metadata_tables(engine)
+    insert_load_metadata(engine, "cancel/f1.xlsx", "cancellation_bills", 100, "success", "INSERT")
+    insert_load_metadata(engine, "cancel/f1.xlsx", "cancellation_bills", 102, "success", "UPDATE")
+    with engine.connect() as conn:
+        count = conn.execute(
+            text("SELECT COUNT(*) FROM _load_metadata WHERE file_path = 'cancel/f1.xlsx'")
+        ).scalar()
+    assert count == 2
+
+
+def test_is_file_loaded_returns_true_for_insert(engine):
+    from loader.db import create_metadata_tables, insert_load_metadata, is_file_loaded
+    create_metadata_tables(engine)
+    insert_load_metadata(engine, "cancel/f1.xlsx", "cancellation_bills", 100, "success", "INSERT")
+    assert is_file_loaded(engine, "cancel/f1.xlsx") is True
+
+
+def test_is_file_loaded_returns_false_after_deleted(engine):
+    from loader.db import create_metadata_tables, insert_load_metadata, is_file_loaded
+    create_metadata_tables(engine)
+    insert_load_metadata(engine, "cancel/f1.xlsx", "cancellation_bills", 100, "success", "INSERT")
+    insert_load_metadata(engine, "cancel/f1.xlsx", "cancellation_bills", 100, "success", "DELETED")
+    assert is_file_loaded(engine, "cancel/f1.xlsx") is False
+
+
+def test_is_file_loaded_returns_false_for_unknown_file(engine):
+    from loader.db import create_metadata_tables, is_file_loaded
+    create_metadata_tables(engine)
+    assert is_file_loaded(engine, "cancel/nothere.xlsx") is False
+
+
+def test_is_file_loaded_backward_compat_null_operation(engine):
+    """Rows from before migration (operation=NULL, status=success) must still count as loaded."""
+    from loader.db import create_metadata_tables, is_file_loaded
+    from datetime import datetime, timezone
+    create_metadata_tables(engine)
+    with engine.connect() as conn:
+        conn.execute(text("""
+            INSERT INTO _load_metadata (file_path, table_name, last_loaded_at, row_count, status)
+            VALUES ('cancel/old.xlsx', 'cancellation_bills', :now, 50, 'success')
+        """), {"now": datetime.now(timezone.utc)})
+        conn.commit()
+    assert is_file_loaded(engine, "cancel/old.xlsx") is True

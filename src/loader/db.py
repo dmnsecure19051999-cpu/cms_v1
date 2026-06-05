@@ -133,33 +133,35 @@ def get_last_run_time(engine: Engine) -> datetime | None:
         return row[0] if row and row[0] is not None else None
 
 
-def upsert_load_metadata(engine: Engine, file_path: str, table_name: str,
-                          row_count: int, status: str):
+def insert_load_metadata(engine: Engine, file_path: str, table_name: str,
+                          row_count: int, status: str, operation: str):
     with engine.connect() as conn:
-        existing = conn.execute(text(
-            "SELECT id FROM _load_metadata WHERE file_path = :fp"
-        ), {"fp": file_path}).fetchone()
-        if existing:
-            conn.execute(text("""
-                UPDATE _load_metadata
-                SET last_loaded_at = :now, row_count = :rc, status = :st
-                WHERE file_path = :fp
-            """), {"now": datetime.now(timezone.utc), "rc": row_count, "st": status, "fp": file_path})
-        else:
-            conn.execute(text("""
-                INSERT INTO _load_metadata (file_path, table_name, last_loaded_at, row_count, status)
-                VALUES (:fp, :tn, :now, :rc, :st)
-            """), {"fp": file_path, "tn": table_name, "now": datetime.now(timezone.utc),
-                   "rc": row_count, "st": status})
+        conn.execute(text("""
+            INSERT INTO _load_metadata (file_path, table_name, last_loaded_at, row_count, status, operation)
+            VALUES (:fp, :tn, :now, :rc, :st, :op)
+        """), {
+            "fp": file_path,
+            "tn": table_name,
+            "now": datetime.now(timezone.utc),
+            "rc": row_count,
+            "st": status,
+            "op": operation,
+        })
         conn.commit()
 
 
 def is_file_loaded(engine: Engine, file_path: str) -> bool:
     with engine.connect() as conn:
-        row = conn.execute(text(
-            "SELECT id FROM _load_metadata WHERE file_path = :fp AND status = :status"
-        ), {"fp": file_path, "status": STATUS_SUCCESS}).fetchone()
-        return row is not None
+        row = conn.execute(text("""
+            SELECT operation, status FROM _load_metadata
+            WHERE file_path = :fp
+            ORDER BY last_loaded_at DESC
+            LIMIT 1
+        """), {"fp": file_path}).fetchone()
+    if row is None:
+        return False
+    operation, status = row[0], row[1]
+    return operation in ('INSERT', 'UPDATE') or (operation is None and status == STATUS_SUCCESS)
 
 
 def insert_run_log(engine: Engine, mode: str, started_at: datetime) -> int:
