@@ -11,6 +11,7 @@ import pandas as pd
 
 from loader.config import Config
 from loader.db import (get_engine, ensure_database, create_metadata_tables,
+                        reset_metadata_tables,
                         get_last_run_time, insert_run_log, finish_run_log,
                         insert_load_metadata, get_table_columns, drop_table,
                         upgrade_column_types, get_active_files,
@@ -22,6 +23,34 @@ from loader.loader import load_file, normalize_col_name, build_table_schemas
 from loader.view_manager import save_views, drop_all_views, restore_views
 
 
+def apply_init_sql(engine, sql_file: Path, logger) -> tuple[int, int]:
+    """Execute a SQL file statement-by-statement.
+
+    Returns (applied, failed) counts.
+    """
+    if not sql_file.exists():
+        return 0, 0
+
+    raw_sql = sql_file.read_text(encoding="utf-8")
+    statements = [s.strip() for s in raw_sql.split(";") if s.strip()]
+    if not statements:
+        return 0, 0
+
+    applied = 0
+    failed = 0
+    with engine.connect() as conn:
+        for stmt in statements:
+            try:
+                conn.exec_driver_sql(stmt)
+                applied += 1
+            except Exception as e:
+                failed += 1
+                if logger:
+                    logger.warning(f"INIT_SQL_FAILED — {sql_file.name} — {e}")
+        conn.commit()
+    return applied, failed
+
+
 def run(mode: str):
     cfg = Config()
     start_time = datetime.now(tz=timezone.utc)
@@ -31,7 +60,10 @@ def run(mode: str):
     try:
         ensure_database(cfg.db_url)
         engine = get_engine(cfg.db_url, pool_size=5)
-        create_metadata_tables(engine)
+        if mode == "init":
+            reset_metadata_tables(engine)
+        else:
+            create_metadata_tables(engine)
     except Exception as e:
         logger.critical(f"DB bootstrap failed: {e}")
         raise
@@ -111,8 +143,18 @@ def run(mode: str):
             for table_name in loaded_tables:
                 upgrade_column_types(engine, table_name, logger)
 
+            # Phase 3.5: enforce index policy for init
+            index_sql = Path("script") / "init_indexes.sql"
+            applied_sql, failed_sql = apply_init_sql(engine, index_sql, logger)
+            if applied_sql or failed_sql:
+                logger.info(
+                    f"INIT — Phase 3.5: index SQL applied={applied_sql}, failed={failed_sql}"
+                )
+                if failed_sql:
+                    errors += failed_sql
+
             # Phase 4: restore views
-            if saved_views:
+            if saved_views or any(view_dir.glob("*.sql")):
                 logger.info("INIT — Phase 4: restoring views")
                 restored, view_failed = restore_views(engine, view_dir, logger)
                 logger.info(f"INIT — {restored} views restored, {view_failed} failed")

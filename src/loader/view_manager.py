@@ -1,5 +1,12 @@
+import re
 from pathlib import Path
 from sqlalchemy import Engine, text
+
+
+_VIEW_TARGET_RE = re.compile(
+    r'^CREATE\s+OR\s+REPLACE\s+VIEW\s+"(?P<schema>[^"]+)"\."(?P<name>[^"]+)"',
+    re.IGNORECASE,
+)
 
 
 def _get_user_views(engine: Engine) -> list[dict]:
@@ -86,6 +93,12 @@ def restore_views(engine: Engine, view_dir: Path, logger=None) -> tuple[int, int
         sql = sql_file.read_text(encoding="utf-8").strip()
         try:
             with engine.connect() as conn:
+                if engine.dialect.name == "postgresql":
+                    match = _VIEW_TARGET_RE.match(sql)
+                    if match:
+                        conn.execute(text(
+                            f'CREATE SCHEMA IF NOT EXISTS "{match.group("schema")}"'
+                        ))
                 conn.execute(text(sql))
                 conn.commit()
             if logger:

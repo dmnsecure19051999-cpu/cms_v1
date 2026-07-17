@@ -78,6 +78,12 @@ def drop_table(engine: Engine, table_name: str):
         conn.commit()
 
 
+def reset_metadata_tables(engine: Engine):
+    drop_table(engine, "_load_metadata")
+    drop_table(engine, "_run_log")
+    create_metadata_tables(engine)
+
+
 def _uuid_col_def(engine: Engine) -> str:
     if engine.dialect.name == "postgresql":
         return '"uuid" UUID PRIMARY KEY DEFAULT gen_random_uuid()'

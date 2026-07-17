@@ -42,6 +42,29 @@ def test_drop_table_nonexistent_is_noop(engine):
     drop_table(engine, "does_not_exist")  # should not raise
 
 
+def test_reset_metadata_tables_recreates_clean_tables(engine):
+    from loader.db import create_metadata_tables, reset_metadata_tables
+    create_metadata_tables(engine)
+    with engine.connect() as conn:
+        conn.execute(text("""
+            INSERT INTO _load_metadata (file_path, table_name, last_loaded_at, row_count, status, operation)
+            VALUES ('cancel/old.xlsx', 'cancellation_bills', CURRENT_TIMESTAMP, 10, 'success', 'INSERT')
+        """))
+        conn.execute(text("""
+            INSERT INTO _run_log (mode, started_at, files_processed, files_skipped, errors)
+            VALUES ('daily', CURRENT_TIMESTAMP, 1, 0, 0)
+        """))
+        conn.commit()
+
+    reset_metadata_tables(engine)
+
+    with engine.connect() as conn:
+        load_count = conn.execute(text("SELECT COUNT(*) FROM _load_metadata")).scalar()
+        run_count = conn.execute(text("SELECT COUNT(*) FROM _run_log")).scalar()
+    assert load_count == 0
+    assert run_count == 0
+
+
 def test_get_last_run_time_none(engine):
     from loader.db import create_metadata_tables, get_last_run_time
     create_metadata_tables(engine)

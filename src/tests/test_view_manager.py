@@ -117,6 +117,17 @@ def test_restore_views_missing_dir_returns_zero(engine, tmp_path):
     assert failed == 0
 
 
+def test_restore_views_from_manual_sql_file(engine, tmp_path):
+    from loader.view_manager import restore_views
+    from sqlalchemy import inspect as sa_inspect
+    sql_file = tmp_path / "v_manual.sql"
+    sql_file.write_text('CREATE VIEW "v_manual" AS SELECT 7 AS n;')
+    restored, failed = restore_views(engine, tmp_path, logger=None)
+    assert restored == 1
+    assert failed == 0
+    assert "v_manual" in sa_inspect(engine).get_view_names()
+
+
 def test_save_drop_restore_roundtrip(engine, tmp_path):
     from loader.view_manager import save_views, drop_all_views, restore_views
     from sqlalchemy import inspect as sa_inspect
