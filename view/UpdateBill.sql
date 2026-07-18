@@ -1,18 +1,18 @@
 CREATE OR REPLACE VIEW "Update_Bills"."UpdateBill" AS
  WITH clean_table AS (
-         SELECT DISTINCT (sr.loai_du_lieu)::text AS loai_du_lieu,
-            (sr.id_khach_hang)::text AS id_khach_hang,
-            (sr.khach_hang)::text AS khach_hang,
-            (sr.pid)::text AS pid,
-            (sr.loai_doanh_thu)::text AS loai_doanh_thu,
-            (sr.loai_hoa_don)::text AS loai_hoa_don,
-            (sr.ma_hoa_don)::text AS ma_hoa_don,
-            (sr.san_pham)::text AS san_pham,
+         SELECT DISTINCT sr.loai_du_lieu,
+            sr.id_khach_hang,
+            sr.khach_hang,
+            sr.pid,
+            sr.loai_doanh_thu,
+            sr.loai_hoa_don,
+            sr.ma_hoa_don,
+            sr.san_pham,
             sr.so_luong,
             sr.ngay_ghi,
             sr.ngay_cap_nhat_hoa_don_cuoi,
             sr.so_tien_thuc_te_thu,
-            (sr.ten_doi_tuong_thanh_toan)::text AS ten_doi_tuong_thanh_toan
+            sr.ten_doi_tuong_thanh_toan
            FROM sales_revenue sr
         ), ranked_table AS (
          SELECT c.loai_du_lieu,
@@ -47,10 +47,10 @@ CREATE OR REPLACE VIEW "Update_Bills"."UpdateBill" AS
     rt."Rank_HD",
     round(
         CASE
-         WHEN ((rt.ten_doi_tuong_thanh_toan::text = ANY (ARRAY['SPĐ'::text, 'SPD - Prepaid'::text, 'Ưu đãi nội bộ'::text])) AND (rt.loai_doanh_thu::text = 'Khác'::text)) THEN ((NULLIF(rt.so_tien_thuc_te_thu::text, ''::text))::numeric * '-0.85'::numeric)
-         WHEN (rt.ten_doi_tuong_thanh_toan::text = ANY (ARRAY['SPĐ'::text, 'SPD - Prepaid'::text, 'Ưu đãi nội bộ'::text, 'KHKD SPĐ'::text, 'Giảm VinClub'::text, 'Tích điểm VinClub'::text, 'VinID'::text, 'Prepaid'::text])) THEN (0)::numeric
-         WHEN (rt.loai_doanh_thu::text = 'Khác'::text) THEN (0.15 * (NULLIF(rt.so_tien_thuc_te_thu::text, ''::text))::numeric)
-         ELSE (NULLIF(rt.so_tien_thuc_te_thu::text, ''::text))::numeric
+            WHEN ((rt.ten_doi_tuong_thanh_toan = ANY (ARRAY['SPĐ'::text, 'SPD - Prepaid'::text, 'Ưu đãi nội bộ'::text])) AND (rt.loai_doanh_thu = 'Khác'::text)) THEN ((NULLIF((rt.so_tien_thuc_te_thu)::text, ''::text))::numeric * '-0.85'::numeric)
+            WHEN (rt.ten_doi_tuong_thanh_toan = ANY (ARRAY['SPĐ'::text, 'SPD - Prepaid'::text, 'Ưu đãi nội bộ'::text, 'KHKD SPĐ'::text, 'Giảm VinClub'::text, 'Tích điểm VinClub'::text, 'VinID'::text, 'Prepaid'::text])) THEN (0)::numeric
+            WHEN (rt.loai_doanh_thu = 'Khác'::text) THEN (0.15 * (NULLIF((rt.so_tien_thuc_te_thu)::text, ''::text))::numeric)
+            ELSE (NULLIF((rt.so_tien_thuc_te_thu)::text, ''::text))::numeric
         END) AS revenue
    FROM (ranked_table rt
      LEFT JOIN cancellation_bills cb ON ((rt.ma_hoa_don = cb.ma_hoa_don)))

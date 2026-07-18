@@ -9,6 +9,22 @@ _ALLOWED_COL_TYPES = {"TEXT", "INTEGER", "FLOAT", "TIMESTAMP"}
 _UPGRADE_SKIP_COLS = {"source_file", "uuid"}
 
 
+def _is_identifier_col(col_name: str | None) -> bool:
+    if not col_name:
+        return False
+    lname = col_name.lower()
+    return (
+        lname == "id"
+        or lname.startswith("id_")
+        or lname.endswith("_id")
+        or lname == "pid"
+        or lname.startswith("pid_")
+        or lname.endswith("_pid")
+        or lname.startswith("ma_")
+        or lname.startswith("stt_")
+    )
+
+
 def get_engine(db_url: str, pool_size: int = 5) -> Engine:
     return create_engine(db_url, pool_size=pool_size, max_overflow=2)
 
@@ -103,6 +119,62 @@ def create_table_with_columns(engine: Engine, table_name: str, columns: list[str
 _UPGRADE_CANDIDATE_TYPES = ("NUMERIC", "TIMESTAMP")
 
 
+def _upgrade_birth_date_column(engine: Engine, table_name: str, col: str, logger=None) -> bool:
+    """Try to convert Excel-serial/text birthday values to DATE in PostgreSQL."""
+    if engine.dialect.name != "postgresql":
+        return False
+    try:
+        with engine.connect() as conn:
+            sql = f'''
+                ALTER TABLE "{table_name}"
+                ALTER COLUMN "{col}" TYPE DATE
+                USING (
+                    CASE
+                        WHEN "{col}" IS NULL OR BTRIM("{col}"::text) = '' THEN NULL
+                        ELSE
+                            CASE
+                                WHEN (
+                                    CASE
+                                        WHEN BTRIM("{col}"::text) ~ '^[0-9]{{8}}$'
+                                            THEN to_date(BTRIM("{col}"::text), 'YYYYMMDD')
+                                        WHEN BTRIM("{col}"::text) ~ '^[0-9]{{4}}-[0-9]{{2}}-[0-9]{{2}}$'
+                                            THEN ("{col}")::timestamp::date
+                                        WHEN BTRIM("{col}"::text) ~ '^[0-9]{{2}}/[0-9]{{2}}/[0-9]{{4}}$'
+                                            THEN to_date(BTRIM("{col}"::text), 'DD/MM/YYYY')
+                                        WHEN BTRIM("{col}"::text) ~ '^[0-9]+(\\.[0]+)?$'
+                                            THEN DATE '1899-12-30' + FLOOR(("{col}")::numeric)::int
+                                        ELSE NULL
+                                    END
+                                ) BETWEEN DATE '1900-01-01' AND CURRENT_DATE
+                                THEN (
+                                    CASE
+                                        WHEN BTRIM("{col}"::text) ~ '^[0-9]{{8}}$'
+                                            THEN to_date(BTRIM("{col}"::text), 'YYYYMMDD')
+                                        WHEN BTRIM("{col}"::text) ~ '^[0-9]{{4}}-[0-9]{{2}}-[0-9]{{2}}$'
+                                            THEN ("{col}")::timestamp::date
+                                        WHEN BTRIM("{col}"::text) ~ '^[0-9]{{2}}/[0-9]{{2}}/[0-9]{{4}}$'
+                                            THEN to_date(BTRIM("{col}"::text), 'DD/MM/YYYY')
+                                        WHEN BTRIM("{col}"::text) ~ '^[0-9]+(\\.[0]+)?$'
+                                            THEN DATE '1899-12-30' + FLOOR(("{col}")::numeric)::int
+                                        ELSE NULL
+                                    END
+                                )
+                                ELSE NULL
+                            END
+                    END
+                )
+            '''
+            conn.execute(text(sql))
+            conn.commit()
+        if logger:
+            logger.info(f"TYPE_UPGRADE — {table_name}.{col} → DATE")
+        return True
+    except Exception as e:
+        if logger:
+            logger.debug(f"SKIP_UPGRADE — {table_name}.{col} → DATE: {e}")
+        return False
+
+
 def upgrade_column_types(engine: Engine, table_name: str, logger=None,
                           cols: list[str] | None = None):
     all_cols = get_table_columns(engine, table_name)
@@ -112,7 +184,10 @@ def upgrade_column_types(engine: Engine, table_name: str, logger=None,
         return
     target_cols = cols if cols is not None else all_cols
     for col in target_cols:
-        if col in _UPGRADE_SKIP_COLS:
+        if col in _UPGRADE_SKIP_COLS or _is_identifier_col(col):
+            continue
+        if table_name == "customer_data" and col == "ngay_sinh":
+            _upgrade_birth_date_column(engine, table_name, col, logger)
             continue
         for sql_type in _UPGRADE_CANDIDATE_TYPES:
             try:

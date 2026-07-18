@@ -126,9 +126,18 @@ def run(mode: str):
             with ThreadPoolExecutor(max_workers=3) as executor:
                 futures = {executor.submit(load_one, f): f for f in files_to_load}
                 for future in as_completed(futures):
-                    result = future.result()
                     completed_count += 1
                     pct = completed_count * 100 // total if total else 100
+                    try:
+                        result = future.result()
+                    except Exception as e:
+                        src = futures.get(future, {})
+                        rel = src.get("rel_path", "unknown")
+                        logger.error(f"WORKER_ERROR — {rel} — {e}")
+                        errors += 1
+                        logger.info(f"PROGRESS — {completed_count}/{total} ({pct}%)")
+                        continue
+
                     logger.info(f"PROGRESS — {completed_count}/{total} ({pct}%)")
                     if result["outcome"] == "ok":
                         processed += 1
@@ -240,6 +249,12 @@ def run(mode: str):
                         logger.error(f"DELETE_FAILED — {rel} — {e}")
 
     finally:
+        if mode == "init":
+            try:
+                # Ensure birth-date normalization is applied even if init exited early.
+                upgrade_column_types(engine, "customer_data", logger, cols=["ngay_sinh"])
+            except Exception as e:
+                logger.error(f"FINAL_TYPE_UPGRADE_FAILED — customer_data.ngay_sinh — {e}")
         finish_run_log(engine, run_id, processed, skipped, errors)
         logger.info(f"Run finished — {processed} loaded, {skipped} skipped, {errors} errors, {deleted} deleted")
 

@@ -1,6 +1,7 @@
 import logging
 import os
 import tempfile
+from decimal import Decimal
 
 import pandas as pd
 import pytest
@@ -154,6 +155,120 @@ def test_load_file_deduplicates_normalized_columns(engine):
     stats = load_file(engine, df, "dedup_tbl", "test/dedup.xlsx", logger=None)
     assert stats["loaded"] == 2
     assert stats["skipped"] == 0
+
+
+def test_load_file_strips_decimal_suffix_from_identifier_columns(engine):
+    from loader.loader import load_file
+    from loader.db import create_metadata_tables
+
+    create_metadata_tables(engine)
+    df = pd.DataFrame({"ID": [1.0, 2.0], "PID": [10.0, 20.0]})
+    stats = load_file(engine, df, "id_tbl", "test/id.xlsx", logger=None)
+
+    assert stats["loaded"] == 2
+    with engine.connect() as conn:
+        rows = conn.execute(text('SELECT "id", "pid" FROM id_tbl ORDER BY "id"')).fetchall()
+
+    assert rows == [("1", "10"), ("2", "20")]
+
+
+def test_load_file_normalizes_identifier_strings_and_decimals(engine):
+    from loader.loader import load_file
+    from loader.db import create_metadata_tables
+
+    create_metadata_tables(engine)
+    df = pd.DataFrame({
+        "customer_id": [Decimal("5124.0"), "201299717.0"],
+        "pid": [".0", " 201161672.0 "],
+    })
+
+    stats = load_file(engine, df, "id_tbl2", "test/id2.xlsx", logger=None)
+
+    assert stats["loaded"] == 2
+    with engine.connect() as conn:
+        rows = conn.execute(text('SELECT "customer_id", "pid" FROM id_tbl2')).fetchall()
+
+    assert set(rows) == {("5124", None), ("201299717", "201161672")}
+
+
+def test_load_file_strips_decimal_suffix_from_live_identifier_patterns(engine):
+    from loader.loader import load_file
+    from loader.db import create_metadata_tables
+
+    create_metadata_tables(engine)
+    df = pd.DataFrame({
+        "id_khach_hang": [1416.0, "8246.0"],
+        "pid_kh_gioi_thieu": ["813014845.0", "812016605.0"],
+        "ma_nv": ["3513423.0", "0.0"],
+        "stt_theo_kh": [3.0, 2.0],
+        "so_tien": [100.5, 200.75],
+    })
+
+    stats = load_file(engine, df, "identifier_patterns", "test/patterns.xlsx", logger=None)
+
+    assert stats["loaded"] == 2
+    with engine.connect() as conn:
+        rows = conn.execute(text(
+            'SELECT "id_khach_hang", "pid_kh_gioi_thieu", "ma_nv", "stt_theo_kh", "so_tien" '
+            'FROM identifier_patterns'
+        )).fetchall()
+
+    normalized = {
+        str(row[0]): (str(row[1]), str(row[2]), str(row[3]), float(row[4]))
+        for row in rows
+    }
+    assert normalized == {
+        "1416": ("813014845", "3513423", "3", 100.5),
+        "8246": ("812016605", "0", "2", 200.75),
+    }
+
+
+def test_load_file_normalizes_relative_info_numeric_suffix(engine):
+    from loader.loader import load_file
+    from loader.db import create_metadata_tables
+
+    create_metadata_tables(engine)
+    df = pd.DataFrame({
+        "thong_tin_nguoi_than": [
+            "837008503.0",
+            814031512.0,
+            " 12345.000 ",
+            "Chong: Nguyen Van A - SDT: 0912",
+        ],
+    })
+
+    stats = load_file(engine, df, "customer_data_like", "test/relative_info.xlsx", logger=None)
+    assert stats["loaded"] == 4
+
+    with engine.connect() as conn:
+        rows = conn.execute(text(
+            'SELECT "thong_tin_nguoi_than" FROM customer_data_like ORDER BY "thong_tin_nguoi_than"'
+        )).fetchall()
+
+    assert set(r[0] for r in rows) == {
+        "837008503",
+        "814031512",
+        "12345",
+        "Chong: Nguyen Van A - SDT: 0912",
+    }
+
+
+def test_load_file_fallback_dot_zero_text_to_empty(engine):
+    from loader.loader import load_file
+    from loader.db import create_metadata_tables
+
+    create_metadata_tables(engine)
+    df = pd.DataFrame({
+        "ly_do_huy": [".0", "huy", " x "],
+    })
+
+    stats = load_file(engine, df, "cancel_like", "test/cancel_like.xlsx", logger=None)
+    assert stats["loaded"] == 3
+
+    with engine.connect() as conn:
+        rows = conn.execute(text('SELECT "ly_do_huy" FROM cancel_like')).fetchall()
+
+    assert set(r[0] for r in rows) == {"", "huy", " x "}
 
 
 def test_load_file_logs_insert_operation(engine):

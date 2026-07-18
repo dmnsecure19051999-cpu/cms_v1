@@ -31,13 +31,68 @@ def _safe_col(name: str) -> str:
     return name.replace('"', '').replace("'", "").strip()
 
 
-def _coerce_value(v, sa_type) -> object:
+def _is_identifier_col(col_name: str | None) -> bool:
+    if not col_name:
+        return False
+    lname = col_name.lower()
+    return (
+        lname == "id"
+        or lname.startswith("id_")
+        or lname.endswith("_id")
+        or lname == "pid"
+        or lname.startswith("pid_")
+        or lname.endswith("_pid")
+        or lname.startswith("ma_")
+        or lname.startswith("stt_")
+    )
+
+
+def _is_relative_info_col(col_name: str | None) -> bool:
+    return bool(col_name and col_name.lower() == "thong_tin_nguoi_than")
+
+
+def _coerce_value(v, sa_type, col_name: str | None = None) -> object:
     """Return v coerced to the SQLAlchemy column type, or None for NaN/NA."""
     try:
         if pd.isna(v):
             return None
     except (TypeError, ValueError):
         pass
+    if _is_relative_info_col(col_name):
+        if isinstance(v, str):
+            stripped = v.strip()
+            if re.fullmatch(r"\d+\.0+", stripped):
+                return stripped.split(".", 1)[0]
+            return stripped
+        if isinstance(v, bool):
+            return v
+        try:
+            numeric = float(v)
+        except (TypeError, ValueError):
+            return v
+        else:
+            if numeric.is_integer():
+                return str(int(numeric))
+            return str(v)
+    if _is_identifier_col(col_name):
+        if isinstance(v, str):
+            stripped = v.strip()
+            if stripped in {"", ".0"}:
+                return None
+            if re.fullmatch(r"[+-]?\d+(?:\.0+)?", stripped):
+                return int(float(stripped))
+            return stripped
+        if isinstance(v, bool):
+            return v
+        try:
+            numeric = float(v)
+        except (TypeError, ValueError):
+            return v
+        else:
+            if numeric.is_integer():
+                return int(numeric)
+    if isinstance(v, str) and v.strip() == ".0":
+        return ""
     if isinstance(sa_type, sa_types.Numeric):
         return float(v)
     if isinstance(sa_type, sa_types.Integer):
@@ -144,7 +199,7 @@ def load_file(engine: Engine, df: pd.DataFrame, table_name: str,
         for idx, row in chunk.iterrows():
             try:
                 record = {
-                    f"p{i}": _coerce_value(v, col_sa_types.get(k))
+                    f"p{i}": _coerce_value(v, col_sa_types.get(k), k)
                     for i, (k, v) in enumerate(row.items())
                 }
                 good_records.append((idx, record))

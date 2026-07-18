@@ -99,6 +99,46 @@ def test_upgrade_column_types_skips_source_file(engine):
     assert "amount" in get_table_columns(engine, "upg_tbl2")
 
 
+def test_upgrade_birth_date_column_noop_on_non_postgres(engine):
+    from loader.db import _upgrade_birth_date_column
+
+    with engine.connect() as conn:
+        conn.execute(text("CREATE TABLE customer_data (ngay_sinh TEXT)"))
+        conn.execute(text("INSERT INTO customer_data VALUES ('32290.0')"))
+        conn.commit()
+
+    upgraded = _upgrade_birth_date_column(engine, "customer_data", "ngay_sinh", logger=None)
+    assert upgraded is False
+
+
+def test_upgrade_column_types_handles_customer_birth_date_on_non_postgres(engine):
+    """Special-case DATE upgrade branch must still be safe on SQLite."""
+    from loader.db import upgrade_column_types, get_table_columns
+
+    with engine.connect() as conn:
+        conn.execute(text("CREATE TABLE customer_data (ngay_sinh TEXT, source_file TEXT)"))
+        conn.execute(text("INSERT INTO customer_data VALUES ('32290.0', 'f.xlsx')"))
+        conn.commit()
+
+    upgrade_column_types(engine, "customer_data", logger=None, cols=["ngay_sinh"])
+    cols = get_table_columns(engine, "customer_data")
+    assert "ngay_sinh" in cols
+
+
+def test_identifier_column_helper_skips_id_like_columns():
+    from loader.db import _is_identifier_col
+
+    assert _is_identifier_col("id") is True
+    assert _is_identifier_col("customer_id") is True
+    assert _is_identifier_col("id_khach_hang") is True
+    assert _is_identifier_col("pid") is True
+    assert _is_identifier_col("nguoi_dung_pid") is True
+    assert _is_identifier_col("pid_kh_gioi_thieu") is True
+    assert _is_identifier_col("ma_nv") is True
+    assert _is_identifier_col("stt_theo_kh") is True
+    assert _is_identifier_col("amount") is False
+
+
 def test_create_table_with_columns(engine):
     from loader.db import create_table_with_columns, get_table_columns
     create_table_with_columns(engine, "tbl_test", ["bill_id", "amount"])
