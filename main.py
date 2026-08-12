@@ -228,25 +228,40 @@ def run(mode: str):
 
             # Detect and archive deleted files
             logger.info("DAILY — checking for deleted files")
-            folder_name_map = {Path(folder).name: folder for folder in cfg.folder_map}
+
+            # Scan ALL files currently existing in source folders
+            current_files = scan_all_files(cfg.folder_map)
+
+            current_rel_paths = {
+                f["rel_path"]
+                for f in current_files
+            }
+
             active_files = get_active_files(engine)
+
+            logger.info(
+                f"DAILY — active metadata files={len(active_files)}, "
+                f"current source files={len(current_rel_paths)}"
+            )
             for active in active_files:
                 rel = active["file_path"]
                 table = active["table_name"]
-                parts = Path(rel).parts
-                if not parts:
-                    continue
-                abs_folder = folder_name_map.get(parts[0])
-                if abs_folder is None:
-                    continue
-                abs_path = Path(abs_folder).joinpath(*parts[1:])
-                if not abs_path.exists():
+
+                if rel not in current_rel_paths:
                     try:
-                        archive_and_delete_file(engine, rel, table, logger)
+                        archive_and_delete_file(
+                            engine,
+                            rel,
+                            table,
+                            logger
+                        )
                         deleted += 1
+
                     except Exception as e:
                         errors += 1
-                        logger.error(f"DELETE_FAILED — {rel} — {e}")
+                        logger.error(
+                            f"DELETE_FAILED — {rel} — {e}"
+                        )
 
     finally:
         if mode == "init":
